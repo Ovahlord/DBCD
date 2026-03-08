@@ -17,13 +17,7 @@ namespace DBCD
     {
         internal string tableName;
         internal string[] availableColumns;
-
-        /// <summary>
-        /// Maps field name to a dynamically generated enum/flags Type for fields that have
-        /// an associated enum or flags definition. Use <see cref="Enum.ToObject(Type, int)"/> to convert
-        /// raw integer values to named enum members.
-        /// </summary>
-        public IReadOnlyDictionary<string, Type> EnumTypes;
+        internal IReadOnlyDictionary<string, Type> enumTypes;
     }
 
     internal class DBCDBuilder
@@ -202,7 +196,7 @@ namespace DBCD
             {
                 availableColumns = columns.ToArray(),
                 tableName = name,
-                EnumTypes = enumTypes
+                enumTypes = enumTypes
             };
 
             return (type, info);

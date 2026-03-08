@@ -218,7 +218,7 @@ namespace DBCD
 
         string[] IDBCDStorage.AvailableColumns => this.info.availableColumns;
         public uint LayoutHash => this.storage.LayoutHash;
-        public IReadOnlyDictionary<string, Type> EnumTypes => this.info.EnumTypes;
+        public IReadOnlyDictionary<string, Type> EnumTypes => this.info.enumTypes;
         public override string ToString() => $"{this.info.tableName}";
 
         public DBCDStorage(Stream stream, DBCDInfo info) : this(new DBParser(stream), info) { }
@@ -245,7 +245,7 @@ namespace DBCD
             _stringFieldCache = fields.Where(f => f.FieldType == typeof(string)).ToArray();
 
             foreach (var record in storage)
-                base.Add(record.Key, new DBCDRow(record.Key, record.Value, fieldAccessor, info.EnumTypes));
+                base.Add(record.Key, new DBCDRow(record.Key, record.Value, fieldAccessor, info.enumTypes));
         }
 
 
@@ -265,7 +265,7 @@ namespace DBCD
                 base[record.Key] = new DBCDRow(record.Key, record.Value, fieldAccessor, info.EnumTypes);
 #else
             foreach (var (id, row) in mutableStorage)
-                base[id] = new DBCDRow(id, row, fieldAccessor, info.EnumTypes);
+                base[id] = new DBCDRow(id, row, fieldAccessor, info.enumTypes);
 #endif
             foreach (var key in base.Keys.Except(mutableStorage.Keys))
                 base.Remove(key);
@@ -313,7 +313,7 @@ namespace DBCD
             foreach (var stringField in _stringFieldCache)
                 stringField.SetValue(raw, string.Empty);
 
-            return new DBCDRow(index, raw, fieldAccessor, info.EnumTypes);
+            return new DBCDRow(index, raw, fieldAccessor, info.enumTypes);
         }
 
         public Dictionary<int, DBCDRow> ToDictionary()
