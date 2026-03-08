@@ -7,10 +7,10 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
+using DBDefsLib.Structs;
 
 namespace DBCD
 {
-
     public struct DBCDInfo
     {
         internal string tableName;
@@ -20,9 +20,9 @@ namespace DBCD
 
     internal class DBCDBuilder
     {
-        private ModuleBuilder moduleBuilder;
-        private int locStringSize;
+        private readonly ModuleBuilder moduleBuilder;
         private readonly Locale locale;
+        private int locStringSize;
 
         internal DBCDBuilder(Locale locale = Locale.None)
         {
@@ -35,12 +35,11 @@ namespace DBCD
             this.locale = locale;
         }
 
-        internal Tuple<Type, DBCDInfo> Build(DBParser dbcReader, Structs.DBDefinition databaseDefinition, string name, string build)
+        internal (Type Type, DBCDInfo Info) Build(DBParser dbcReader, DBDefinition databaseDefinition, string name, string build)
         {
-            if (name == null)
-                name = Guid.NewGuid().ToString();
+            name ??= Guid.NewGuid().ToString();
 
-            Structs.VersionDefinitions? versionDefinition = null;
+            VersionDefinitions? versionDefinition = null;
 
             if (!string.IsNullOrWhiteSpace(build))
             {
@@ -69,17 +68,16 @@ namespace DBCD
 
             var fields = versionDefinition.Value.definitions;
             var columns = new List<string>(fields.Length);
-            bool localiseStrings = locale != Locale.None;
+            var localiseStrings = locale != Locale.None;
 
             var metadataIndex = 0;
             foreach (var fieldDefinition in fields)
             {
                 var columnDefinition = databaseDefinition.columnDefinitions[fieldDefinition.name];
-                bool isLocalisedString = columnDefinition.type == "locstring" && locStringSize > 1;
-
+                var isLocalisedString = columnDefinition.type == "locstring" && locStringSize > 1;
 
                 Type fieldType;
-                if (fieldDefinition.isRelation && fieldDefinition.isNonInline)
+                if (fieldDefinition is { isRelation: true, isNonInline: true })
                 {
                     fieldType = fieldDefinition.arrLength == 0 ? typeof(int) : typeof(int[]);
                 }
@@ -95,8 +93,8 @@ namespace DBCD
                 if (fieldDefinition.isID)
                 {
                     AddAttribute<IndexAttribute>(field, fieldDefinition.isNonInline);
-                } 
-                
+                }
+
                 if (!fieldDefinition.isNonInline)
                 {
                     if (dbcReader.ColumnMeta != null && metadataIndex < dbcReader.ColumnMeta.Length)
@@ -146,7 +144,7 @@ namespace DBCD
                 tableName = name
             };
 
-            return new Tuple<Type, DBCDInfo>(type, info);
+            return (type, info);
         }
 
         private int GetLocStringSize(Build build)
@@ -171,7 +169,7 @@ namespace DBCD
             field.SetCustomAttribute(attributeBuilder);
         }
 
-        private Type FieldDefinitionToType(Structs.Definition field, Structs.ColumnDefinition column, bool localiseStrings)
+        private Type FieldDefinitionToType(Definition field, ColumnDefinition column, bool localiseStrings)
         {
             var isArray = field.arrLength != 0;
 

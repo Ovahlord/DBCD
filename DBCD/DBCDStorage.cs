@@ -1,11 +1,8 @@
 using DBCD.Helpers;
-
 using DBCD.IO;
 using DBCD.IO.Attributes;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Dynamic;
 using System.IO;
 using System.Linq;
@@ -18,7 +15,7 @@ namespace DBCD
         public int ID;
 
         private readonly dynamic raw;
-        private FieldAccessor fieldAccessor;
+        private readonly FieldAccessor fieldAccessor;
 
         internal DBCDRow(int ID, dynamic raw, FieldAccessor fieldAccessor)
         {
@@ -81,25 +78,16 @@ namespace DBCD
         }
     }
 
-    public class RowConstructor
+    public class RowConstructor(IDBCDStorage storage)
     {
-        private readonly IDBCDStorage storage;
-        public RowConstructor(IDBCDStorage storage)
-        {
-            this.storage = storage;
-        }
-
         public bool Create(int index, Action<dynamic> f)
         {
             var constructedRow = storage.ConstructRow(index);
             if (storage.ContainsKey(index))
                 return false;
-            else
-            {
-                f(constructedRow);
-                storage.Add(index, constructedRow);
-            }
 
+            f(constructedRow);
+            storage.Add(index, constructedRow);
             return true;
         }
     }
@@ -129,6 +117,9 @@ namespace DBCD
         private readonly DBCDInfo info;
         private readonly DBParser parser;
 
+        private readonly (FieldInfo Field, Type ElementType, int Count, bool IsString)[] _arrayFieldCache;
+        private readonly FieldInfo[] _stringFieldCache;
+
         string[] IDBCDStorage.AvailableColumns => this.info.availableColumns;
         public uint LayoutHash => this.storage.LayoutHash;
         public override string ToString() => $"{this.info.tableName}";
@@ -143,6 +134,17 @@ namespace DBCD
             this.fieldAccessor = new FieldAccessor(typeof(T), info.availableColumns);
             this.parser = parser;
             this.storage = storage;
+
+            var fields = typeof(T).GetFields();
+            _arrayFieldCache = [.. fields
+                .Where(f => f.FieldType.IsArray)
+                .Select(f =>
+                {
+                    var elementType = f.FieldType.GetElementType()!;
+                    var count = f.GetCustomAttribute<CardinalityAttribute>()!.Count;
+                    return (f, elementType, count, elementType == typeof(string));
+                })];
+            _stringFieldCache = [.. fields.Where(f => f.FieldType == typeof(string))];
 
             foreach (var record in storage)
                 base.Add(record.Key, new DBCDRow(record.Key, record.Value, fieldAccessor));
@@ -198,35 +200,21 @@ namespace DBCD
         public DBCDRow ConstructRow(int index)
         {
             T raw = new();
-            var fields = typeof(T).GetFields();
-            // Array Fields need to be initialized to fill their length
-            var arrayFields = fields.Where(x => x.FieldType.IsArray);
-            foreach (var arrayField in arrayFields)
-            {
-                var count = arrayField.GetCustomAttribute<CardinalityAttribute>().Count;
-                var elementType = arrayField.FieldType.GetElementType();
-                var isStringField = elementType == typeof(string);
 
-                Array rowRecords = Array.CreateInstance(elementType, count);
-                for (var i = 0; i < count; i++)
-                {
-                    if (isStringField)
-                    {
-                        rowRecords.SetValue(string.Empty, i);
-                    } else
-                    {
-                        rowRecords.SetValue(Activator.CreateInstance(elementType), i);
-                    }
-                }
-                arrayField.SetValue(raw, rowRecords);
+            // Array fields: value type arrays are already zero-initialized by Array.CreateInstance;
+            // only string arrays need explicit filling.
+            foreach (var (field, elementType, count, isString) in _arrayFieldCache)
+            {
+                var arr = Array.CreateInstance(elementType, count);
+                if (isString)
+                    Array.Fill((string[])arr, string.Empty);
+                field.SetValue(raw, arr);
             }
 
-            // String Fields need to be initialized to empty string rather than null;
-            var stringFields = fields.Where(x => x.FieldType == typeof(string));
-            foreach (var stringField in stringFields)
-            {
+            // String fields must be initialized to empty string rather than null.
+            foreach (var stringField in _stringFieldCache)
                 stringField.SetValue(raw, string.Empty);
-            }
+
             return new DBCDRow(index, raw, fieldAccessor);
         }
 

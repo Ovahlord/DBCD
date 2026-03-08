@@ -4,6 +4,7 @@ using DBDefsLib;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using DBDefsLib.Structs;
 
 namespace DBCD
 {
@@ -14,7 +15,7 @@ namespace DBCD
         private readonly IDBDProvider dbdProvider;
 
         private readonly bool useBDBD;
-        private readonly Dictionary<string, Structs.TableInfo> BDBDCache;
+        private readonly Dictionary<string, TableInfo> BDBDCache;
 
         /// <summary>
         /// Creates a DBCD instance that uses the given DBC and DBD providers.
@@ -52,7 +53,7 @@ namespace DBCD
         {
             var dbcStream = this.dbcProvider.StreamForTableName(tableName, build);
 
-            Structs.DBDefinition databaseDefinition;
+            DBDefinition databaseDefinition;
 
             if (!useBDBD)
             {
@@ -73,12 +74,8 @@ namespace DBCD
             var dbReader = new DBParser(dbcStream);
             var definition = builder.Build(dbReader, databaseDefinition, tableName, build);
 
-            var type = typeof(DBCDStorage<>).MakeGenericType(definition.Item1);
-
-            return (IDBCDStorage)Activator.CreateInstance(type, new object[2] {
-                dbReader,
-                definition.Item2
-            });
+            var type = typeof(DBCDStorage<>).MakeGenericType(definition.Type);
+            return (IDBCDStorage)Activator.CreateInstance(type, dbReader, definition.Info);
         }
     }
 
