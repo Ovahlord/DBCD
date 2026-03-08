@@ -1,38 +1,47 @@
 using DBDefsLib;
+using DBDefsLib.Constants;
+using DBDefsLib.Structs;
 using DBCD.IO;
 using DBCD.IO.Attributes;
+using DBCD.Providers;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
-using DBDefsLib.Structs;
 
 namespace DBCD
 {
     public struct DBCDInfo
     {
         internal string tableName;
-
         internal string[] availableColumns;
+
+        /// <summary>
+        /// Maps field name to a dynamically generated enum/flags Type for fields that have
+        /// an associated enum or flags definition. Use <see cref="Enum.ToObject(Type, int)"/> to convert
+        /// raw integer values to named enum members.
+        /// </summary>
+        public IReadOnlyDictionary<string, Type> EnumTypes;
     }
 
     internal class DBCDBuilder
     {
         private readonly ModuleBuilder moduleBuilder;
         private readonly Locale locale;
+        private readonly IEnumProvider enumProvider;
         private int locStringSize;
 
-        internal DBCDBuilder(Locale locale = Locale.None)
+        internal DBCDBuilder(Locale locale = Locale.None, IEnumProvider enumProvider = null)
         {
             var assemblyName = new AssemblyName("DBCDDefinitions");
             var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(assemblyName, AssemblyBuilderAccess.Run);
-            var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name);
+            moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name);
 
-            this.moduleBuilder = moduleBuilder;
             this.locStringSize = 1;
             this.locale = locale;
+            this.enumProvider = enumProvider;
         }
 
         internal (Type Type, DBCDInfo Info) Build(DBParser dbcReader, DBDefinition databaseDefinition, string name, string build)
@@ -40,12 +49,13 @@ namespace DBCD
             name ??= Guid.NewGuid().ToString();
 
             VersionDefinitions? versionDefinition = null;
+            Build currentBuild = null;
 
             if (!string.IsNullOrWhiteSpace(build))
             {
-                var dbBuild = new Build(build);
-                locStringSize = GetLocStringSize(dbBuild);
-                Utils.GetVersionDefinitionByBuild(databaseDefinition, dbBuild, out versionDefinition);
+                currentBuild = new Build(build);
+                locStringSize = GetLocStringSize(currentBuild);
+                Utils.GetVersionDefinitionByBuild(databaseDefinition, currentBuild, out versionDefinition);
             }
 
             if (versionDefinition == null && dbcReader.LayoutHash != 0)
@@ -69,6 +79,7 @@ namespace DBCD
             var fields = versionDefinition.Value.definitions;
             var columns = new List<string>(fields.Length);
             var localiseStrings = locale != Locale.None;
+            var enumTypes = new Dictionary<string, Type>();
 
             var metadataIndex = 0;
             foreach (var fieldDefinition in fields)
@@ -134,6 +145,55 @@ namespace DBCD
                         columns.Add(fieldDefinition.name + "_mask");
                     }
                 }
+
+                // Enum/flags annotation — non-relation integer fields only
+                if (enumProvider != null && !fieldDefinition.isRelation)
+                {
+                    if (fieldDefinition.arrLength == 0)
+                    {
+                        // Non-array: single definition applies to the whole field
+                        var enumDef = enumProvider.GetEnumDefinition(name, fieldDefinition.name);
+                        if (enumDef.HasValue)
+                        {
+                            var isFlags = enumDef.Value.metaType == MetaType.FLAGS;
+                            var enumTypeName = $"{name}_{fieldDefinition.name}";
+                            var enumType = BuildEnumType(enumTypeName, enumDef.Value, currentBuild);
+                            enumTypes[fieldDefinition.name] = enumType;
+                            AddEnumAttribute(field, enumTypeName, isFlags);
+                        }
+                    }
+                    else
+                    {
+                        // Array: definitions may vary per-index (null key = all indices)
+                        var arrayEnumDefs = enumProvider.GetArrayEnumDefinitions(name, fieldDefinition.name);
+                        if (arrayEnumDefs != null)
+                        {
+                            EnumDefinition? attributeHint = null;
+
+                            foreach (var (arrIndex, enumDef) in arrayEnumDefs)
+                            {
+                                var enumTypeName = arrIndex.HasValue
+                                    ? $"{name}_{fieldDefinition.name}_{arrIndex}"
+                                    : $"{name}_{fieldDefinition.name}";
+
+                                var enumType = BuildEnumType(enumTypeName, enumDef, currentBuild);
+
+                                // null key -> all elements share this type, keyed by plain field name
+                                // indexed key -> stored as "FieldName[n]" for per-element lookup
+                                var typeKey = arrIndex.HasValue ? $"{fieldDefinition.name}[{arrIndex}]" : fieldDefinition.name;
+                                enumTypes[typeKey] = enumType;
+                                attributeHint ??= enumDef;
+                            }
+
+                            // Tag the field with EnumAttribute so consumers know to check EnumTypes
+                            if (attributeHint.HasValue)
+                            {
+                                var hintTypeName = $"{name}_{fieldDefinition.name}";
+                                AddEnumAttribute(field, hintTypeName, attributeHint.Value.metaType == MetaType.FLAGS);
+                            }
+                        }
+                    }
+                }
             }
 
             var type = typeBuilder.CreateTypeInfo();
@@ -141,10 +201,61 @@ namespace DBCD
             var info = new DBCDInfo
             {
                 availableColumns = columns.ToArray(),
-                tableName = name
+                tableName = name,
+                EnumTypes = enumTypes
             };
 
             return (type, info);
+        }
+
+        /// <summary>
+        /// Dynamically generates an enum type from an <see cref="EnumDefinition"/>,
+        /// optionally filtered to entries that match <paramref name="currentBuild"/>.
+        /// </summary>
+        private Type BuildEnumType(string typeName, EnumDefinition enumDef, Build currentBuild)
+        {
+            var isFlags = enumDef.metaType == MetaType.FLAGS;
+            // FLAGS values can reach 0x80000000 so use uint; ENUM values are plain ints
+            var underlyingType = isFlags ? typeof(uint) : typeof(int);
+
+            var enumBuilder = moduleBuilder.DefineEnum(typeName, TypeAttributes.Public, underlyingType);
+
+            if (isFlags)
+            {
+                var flagsCtor = typeof(FlagsAttribute).GetConstructor(Type.EmptyTypes);
+                enumBuilder.SetCustomAttribute(new CustomAttributeBuilder(flagsCtor, []));
+            }
+
+            foreach (var entry in enumDef.entries)
+            {
+                if (string.IsNullOrEmpty(entry.name))
+                    continue;
+
+                if (!EntryMatchesBuild(entry, currentBuild))
+                    continue;
+
+                if (isFlags)
+                    enumBuilder.DefineLiteral(entry.name, (uint)entry.value);
+                else
+                    enumBuilder.DefineLiteral(entry.name, (int)entry.value);
+            }
+
+            return enumBuilder.CreateTypeInfo();
+        }
+
+        /// <summary>
+        /// Returns true if the entry applies to the given build, or if the entry has no build
+        /// restrictions (applies to all builds), or if no build is specified.
+        /// </summary>
+        private static bool EntryMatchesBuild(EnumEntry entry, Build currentBuild)
+        {
+            if (currentBuild == null || (entry.builds.Length == 0 && entry.buildRanges.Length == 0))
+                return true;
+
+            if (entry.builds.Any(b => b.Equals(currentBuild)))
+                return true;
+
+            return entry.buildRanges.Any(r => r.Contains(currentBuild));
         }
 
         private int GetLocStringSize(Build build)
@@ -169,6 +280,18 @@ namespace DBCD
             field.SetCustomAttribute(attributeBuilder);
         }
 
+        /// <summary>
+        /// Applies <see cref="EnumAttribute"/> to a field. Uses a dedicated method because the
+        /// generic <see cref="AddAttribute{T}"/> helper derives parameter types via
+        /// <c>GetType()</c>, which doesn't work correctly for <c>bool</c> literals.
+        /// </summary>
+        private static void AddEnumAttribute(FieldBuilder field, string enumName, bool isFlags)
+        {
+            var ctor = typeof(EnumAttribute).GetConstructor([typeof(string), typeof(bool)]);
+            var attributeBuilder = new CustomAttributeBuilder(ctor, [enumName, isFlags]);
+            field.SetCustomAttribute(attributeBuilder);
+        }
+
         private Type FieldDefinitionToType(Definition field, ColumnDefinition column, bool localiseStrings)
         {
             var isArray = field.arrLength != 0;
@@ -176,37 +299,27 @@ namespace DBCD
             switch (column.type)
             {
                 case "int":
+                {
+                    var signed = field.isSigned;
+                    var type = field.size switch
                     {
-                        Type type = null;
-                        var signed = field.isSigned;
-
-                        switch (field.size)
-                        {
-                            case 8:
-                                type = signed ? typeof(sbyte) : typeof(byte);
-                                break;
-                            case 16:
-                                type = signed ? typeof(short) : typeof(ushort);
-                                break;
-                            case 32:
-                                type = signed ? typeof(int) : typeof(uint);
-                                break;
-                            case 64:
-                                type = signed ? typeof(long) : typeof(ulong);
-                                break;
-                        }
-
-                        return isArray ? type.MakeArrayType() : type;
-                    }
+                        8  => signed ? typeof(sbyte) : typeof(byte),
+                        16 => signed ? typeof(short) : typeof(ushort),
+                        32 => signed ? typeof(int) : typeof(uint),
+                        64 => signed ? typeof(long) : typeof(ulong),
+                        _  => null
+                    };
+                    return isArray ? type.MakeArrayType() : type;
+                }
                 case "string":
                     return isArray ? typeof(string[]) : typeof(string);
                 case "locstring":
-                    {
-                        if (isArray && locStringSize > 1)
-                            throw new NotSupportedException("Localised string arrays are not supported");
+                {
+                    if (isArray && locStringSize > 1)
+                        throw new NotSupportedException("Localised string arrays are not supported");
 
-                        return (!localiseStrings && locStringSize > 1) || isArray ? typeof(string[]) : typeof(string);
-                    }
+                    return (!localiseStrings && locStringSize > 1) || isArray ? typeof(string[]) : typeof(string);
+                }
                 case "float":
                     return isArray ? typeof(float[]) : typeof(float);
                 default:

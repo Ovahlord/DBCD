@@ -8,11 +8,11 @@ using DBDefsLib.Structs;
 
 namespace DBCD
 {
-
     public class DBCD
     {
         private readonly IDBCProvider dbcProvider;
         private readonly IDBDProvider dbdProvider;
+        private readonly IEnumProvider enumProvider;
 
         private readonly bool useBDBD;
         private readonly Dictionary<string, TableInfo> BDBDCache;
@@ -22,10 +22,12 @@ namespace DBCD
         /// </summary>
         /// <param name="dbcProvider">The IDBCProvider for DBC files.</param>
         /// <param name="dbdProvider">The IDBDProvider for DBD files.</param>
-        public DBCD(IDBCProvider dbcProvider, IDBDProvider dbdProvider)
+        /// <param name="enumProvider">The optional IEnumProvider for enum/flag metadata.</param>
+        public DBCD(IDBCProvider dbcProvider, IDBDProvider dbdProvider, IEnumProvider enumProvider = null)
         {
             this.dbcProvider = dbcProvider;
             this.dbdProvider = dbdProvider;
+            this.enumProvider = enumProvider;
             this.useBDBD = false;
         }
 
@@ -34,10 +36,12 @@ namespace DBCD
         /// </summary>
         /// <param name="dbcProvider">The IDBCProvider for DBC files.</param>
         /// <param name="bdbdStream">The stream for a BDBD (Binary DBD) file to load all definitions from.</param>
+        /// <param name="enumProvider">The optional IEnumProvider for enum/flag metadata.</param>
         /// <remarks>WARNING: The usage of a BDBD file for supplying definitions is still experimental and currently has little to no advantages.</remarks>
-        public DBCD(IDBCProvider dbcProvider, Stream bdbdStream)
+        public DBCD(IDBCProvider dbcProvider, Stream bdbdStream, IEnumProvider enumProvider = null)
         {
             this.dbcProvider = dbcProvider;
+            this.enumProvider = enumProvider;
             this.useBDBD = true;
             this.BDBDCache = BDBDReader.Read(bdbdStream);
         }
@@ -69,7 +73,7 @@ namespace DBCD
                 databaseDefinition = tableInfo.dbd;
             }
 
-            var builder = new DBCDBuilder(locale);
+            var builder = new DBCDBuilder(locale, enumProvider);
 
             var dbReader = new DBParser(dbcStream);
             var definition = builder.Build(dbReader, databaseDefinition, tableName, build);

@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="DBDefsLib" Version="1.0.1.1-beta" />
+    <PackageReference Include="DBDefsLib" Version="1.0.1.2-beta" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
   </ItemGroup>
 

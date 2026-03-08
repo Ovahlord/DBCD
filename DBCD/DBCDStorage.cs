@@ -16,11 +16,13 @@ namespace DBCD
 
         private readonly dynamic raw;
         private readonly FieldAccessor fieldAccessor;
+        private readonly IReadOnlyDictionary<string, Type> enumTypes;
 
-        internal DBCDRow(int ID, dynamic raw, FieldAccessor fieldAccessor)
+        internal DBCDRow(int ID, dynamic raw, FieldAccessor fieldAccessor, IReadOnlyDictionary<string, Type> enumTypes = null)
         {
             this.raw = raw;
             this.fieldAccessor = fieldAccessor;
+            this.enumTypes = enumTypes;
             this.ID = ID;
         }
 
@@ -36,14 +38,32 @@ namespace DBCD
 
         public object this[string fieldName]
         {
-            get => fieldAccessor[this.raw, fieldName];
+            get
+            {
+                var value = fieldAccessor[this.raw, fieldName];
+                if (enumTypes != null && enumTypes.TryGetValue(fieldName, out var enumType))
+                    return Enum.ToObject(enumType, value);
+                return value;
+            }
             set => fieldAccessor[this.raw, fieldName] = value;
         }
 
         public object this[string fieldName, int index]
         {
-            get => ((Array)this[fieldName]).GetValue(index);
-            set => ((Array)this[fieldName]).SetValue(value, index);
+            get
+            {
+                var element = ((Array)fieldAccessor[this.raw, fieldName]).GetValue(index);
+                if (enumTypes != null)
+                {
+                    var key = enumTypes.ContainsKey($"{fieldName}[{index}]")
+                        ? $"{fieldName}[{index}]"
+                        : fieldName;
+                    if (enumTypes.TryGetValue(key, out var enumType))
+                        return Enum.ToObject(enumType, element);
+                }
+                return element;
+            }
+            set => ((Array)fieldAccessor[this.raw, fieldName]).SetValue(value, index);
         }
 
         public T Field<T>(string fieldName)
@@ -54,6 +74,80 @@ namespace DBCD
         public T FieldAs<T>(string fieldName)
         {
             return fieldAccessor.GetMemberAs<T>(this.raw, fieldName);
+        }
+
+        /// <summary>
+        /// Returns true if the named flag is set in the flags field.
+        /// </summary>
+        public bool HasFlag(string fieldName, string flagName)
+        {
+            if (enumTypes == null || !enumTypes.TryGetValue(fieldName, out var enumType))
+                return false;
+
+            if (!Enum.IsDefined(enumType, flagName))
+                throw new KeyNotFoundException($"{flagName} not in {enumType}");
+
+            var raw = Convert.ToUInt64(fieldAccessor[this.raw, fieldName]);
+            var flag = Convert.ToUInt64(Enum.Parse(enumType, flagName));
+            return (raw & flag) == flag;
+        }
+
+        /// <summary>
+        /// Returns true if the named flag is set in the flags field at the given array index.
+        /// Checks a per-index mapping first ("FieldName[n]"), then falls back to a whole-field mapping.
+        /// </summary>
+        public bool HasFlag(string fieldName, int index, string flagName)
+        {
+            if (enumTypes == null)
+                return false;
+
+            var key = enumTypes.ContainsKey($"{fieldName}[{index}]") ? $"{fieldName}[{index}]" : fieldName;
+            if (!enumTypes.TryGetValue(key, out var enumType))
+                return false;
+
+            if (!Enum.IsDefined(enumType, flagName))
+                throw new KeyNotFoundException($"{flagName} not in {enumType}");
+
+            var element = ((Array)fieldAccessor[this.raw, fieldName]).GetValue(index);
+            var raw = Convert.ToUInt64(element);
+            var flag = Convert.ToUInt64(Enum.Parse(enumType, flagName));
+            return (raw & flag) == flag;
+        }
+
+        /// <summary>
+        /// Returns true if the enum field's value matches the named enum member.
+        /// </summary>
+        public bool IsEnumMember(string fieldName, string memberName)
+        {
+            if (enumTypes == null || !enumTypes.TryGetValue(fieldName, out var enumType))
+                return false;
+
+            if (!Enum.IsDefined(enumType, memberName))
+                throw new KeyNotFoundException($"{memberName} not in {enumType}");
+
+            var raw = Enum.ToObject(enumType, fieldAccessor[this.raw, fieldName]);
+            return raw.Equals(Enum.Parse(enumType, memberName));
+        }
+
+        /// <summary>
+        /// Returns true if the enum field at the given array index matches the named enum member.
+        /// Checks a per-index mapping first ("FieldName[n]"), then falls back to a whole-field mapping.
+        /// </summary>
+        public bool IsEnumMember(string fieldName, int index, string memberName)
+        {
+            if (enumTypes == null)
+                return false;
+
+            var key = enumTypes.ContainsKey($"{fieldName}[{index}]") ? $"{fieldName}[{index}]" : fieldName;
+            if (!enumTypes.TryGetValue(key, out var enumType))
+                return false;
+
+            if (!Enum.IsDefined(enumType, memberName))
+                throw new KeyNotFoundException($"{memberName} not in {enumType}");
+
+            var element = ((Array)fieldAccessor[this.raw, fieldName]).GetValue(index);
+            var raw = Enum.ToObject(enumType, element);
+            return raw.Equals(Enum.Parse(enumType, memberName));
         }
 
         public override IEnumerable<string> GetDynamicMemberNames()
@@ -97,6 +191,8 @@ namespace DBCD
         string[] AvailableColumns { get; }
         uint LayoutHash { get;  }
 
+        IReadOnlyDictionary<string, Type> EnumTypes { get; }
+
         DBCDRow ConstructRow(int index);
 
         Dictionary<ulong, int> GetEncryptedSections();
@@ -122,6 +218,7 @@ namespace DBCD
 
         string[] IDBCDStorage.AvailableColumns => this.info.availableColumns;
         public uint LayoutHash => this.storage.LayoutHash;
+        public IReadOnlyDictionary<string, Type> EnumTypes => this.info.EnumTypes;
         public override string ToString() => $"{this.info.tableName}";
 
         public DBCDStorage(Stream stream, DBCDInfo info) : this(new DBParser(stream), info) { }
@@ -136,18 +233,19 @@ namespace DBCD
             this.storage = storage;
 
             var fields = typeof(T).GetFields();
-            _arrayFieldCache = [.. fields
+            _arrayFieldCache = fields
                 .Where(f => f.FieldType.IsArray)
                 .Select(f =>
                 {
-                    var elementType = f.FieldType.GetElementType()!;
-                    var count = f.GetCustomAttribute<CardinalityAttribute>()!.Count;
+                    var elementType = f.FieldType.GetElementType();
+                    var count = f.GetCustomAttribute<CardinalityAttribute>().Count;
                     return (f, elementType, count, elementType == typeof(string));
-                })];
-            _stringFieldCache = [.. fields.Where(f => f.FieldType == typeof(string))];
+                })
+                .ToArray();
+            _stringFieldCache = fields.Where(f => f.FieldType == typeof(string)).ToArray();
 
             foreach (var record in storage)
-                base.Add(record.Key, new DBCDRow(record.Key, record.Value, fieldAccessor));
+                base.Add(record.Key, new DBCDRow(record.Key, record.Value, fieldAccessor, info.EnumTypes));
         }
 
 
@@ -164,10 +262,10 @@ namespace DBCD
 
 #if NETSTANDARD2_0
             foreach (var record in mutableStorage)
-                base[record.Key] = new DBCDRow(record.Key, record.Value, fieldAccessor);
+                base[record.Key] = new DBCDRow(record.Key, record.Value, fieldAccessor, info.EnumTypes);
 #else
             foreach (var (id, row) in mutableStorage)
-                base[id] = new DBCDRow(id, row, fieldAccessor);
+                base[id] = new DBCDRow(id, row, fieldAccessor, info.EnumTypes);
 #endif
             foreach (var key in base.Keys.Except(mutableStorage.Keys))
                 base.Remove(key);
@@ -215,7 +313,7 @@ namespace DBCD
             foreach (var stringField in _stringFieldCache)
                 stringField.SetValue(raw, string.Empty);
 
-            return new DBCDRow(index, raw, fieldAccessor);
+            return new DBCDRow(index, raw, fieldAccessor, info.EnumTypes);
         }
 
         public Dictionary<int, DBCDRow> ToDictionary()
