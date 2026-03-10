@@ -29,6 +29,7 @@ namespace DBCD.Providers
         /// For array fields, pass the element index. A specific-index mapping takes priority over
         /// an "applies to all elements" mapping (indicated by a null <c>arrIndex</c> in the source data).
         /// </summary>
-        public EnumDefinition? GetEnumDefinition(string tableName, string columnName, int? arrayIndex = null);
+        public EnumDefinition? GetEnumDefinition(string tableName, string columnName, int? arrayIndex = null,
+            string conditionalTable = null, string conditionalColumn = null, string conditionalValue = null);
     }
 }

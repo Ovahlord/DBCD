@@ -26,24 +26,32 @@ namespace DBCD.Providers
             PopulateCache();
         }
 
-        public EnumDefinition? GetEnumDefinition(string tableName, string columnName, int? arrayIndex = null)
+        public EnumDefinition? GetEnumDefinition(string tableName, string columnName, int? arrayIndex = null,
+            string conditionalTable = null, string conditionalColumn = null, string conditionalValue = null)
         {
-            if (arrayIndex.HasValue)
+            // Build base key (with or without array index)
+            var baseKey = arrayIndex.HasValue
+                ? $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}[{arrayIndex}]"
+                : $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}";
+
+            // If conditional context supplied, try conditional key first
+            if (!string.IsNullOrEmpty(conditionalTable))
             {
-                var specificKey = $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}[{arrayIndex}]";
-                if (cache.TryGetValue(specificKey, out var specific))
-                    return specific;
-
-                // Fall back to an "applies to all" mapping (null arrIndex), stored under the plain key
-                var fallbackKey = $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}";
-                if (cache.TryGetValue(fallbackKey, out var fallback))
-                    return fallback;
-
-                return null;
+                var conditionalKey = $"{baseKey}@{conditionalTable.ToLowerInvariant()}.{conditionalColumn!.ToLowerInvariant()}={conditionalValue}";
+                if (cache.TryGetValue(conditionalKey, out var conditional))
+                    return conditional;
             }
 
-            var key = $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}";
-            return cache.TryGetValue(key, out var cached) ? cached : null;
+            // Fall back to unconditional (handles arrayIndex fallback too)
+            if (arrayIndex.HasValue)
+            {
+                if (cache.TryGetValue(baseKey, out var specific))
+                    return specific;
+                var fallbackKey = $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}";
+                return cache.TryGetValue(fallbackKey, out var fallback) ? fallback : null;
+            }
+
+            return cache.TryGetValue(baseKey, out var cached) ? cached : null;
         }
 
         private void PopulateCache()
@@ -56,10 +64,7 @@ namespace DBCD.Providers
                 if (mapping.meta is MetaType.COLOR)
                     continue;
 
-                var cacheKey = mapping.arrIndex.HasValue
-                    ? $"{mapping.tableName.ToLowerInvariant()}::{mapping.columnName.ToLowerInvariant()}[{mapping.arrIndex}]"
-                    : $"{mapping.tableName.ToLowerInvariant()}::{mapping.columnName.ToLowerInvariant()}";
-
+                var cacheKey = BuildCacheKey(mapping);
                 var fileKey = $"{mapping.meta}::{mapping.metaValue}";
                 if (!fileCache.TryGetValue(fileKey, out var enumDef))
                 {
@@ -82,6 +87,18 @@ namespace DBCD.Providers
                 return null;
 
             return new DBDEnumReader().Read(path, mapping.meta);
+        }
+
+        private static string BuildCacheKey(MappingDefinition m)
+        {
+            var key = m.arrIndex.HasValue
+                ? $"{m.tableName.ToLowerInvariant()}::{m.columnName.ToLowerInvariant()}[{m.arrIndex}]"
+                : $"{m.tableName.ToLowerInvariant()}::{m.columnName.ToLowerInvariant()}";
+
+            if (!string.IsNullOrEmpty(m.conditionalTable))
+                key += $"@{m.conditionalTable.ToLowerInvariant()}.{m.conditionalColumn.ToLowerInvariant()}={m.conditionalValue}";
+
+            return key;
         }
     }
 }
