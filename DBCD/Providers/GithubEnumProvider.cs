@@ -21,9 +21,10 @@ namespace DBCD.Providers
         private static string CachePath { get; } = "EnumCache/";
         private static readonly TimeSpan CacheExpiryTime = new TimeSpan(1, 0, 0, 0);
 
-        private readonly List<MappingDefinition> mappings;
         private readonly Dictionary<string, EnumDefinition?> cache = new();
         private readonly Dictionary<string, IReadOnlyDictionary<int?, EnumDefinition>?> arrayCache = new();
+
+        public List<MappingDefinition> Mappings { get; }
 
         public GithubEnumProvider(bool useCache = false)
         {
@@ -34,7 +35,7 @@ namespace DBCD.Providers
                 Directory.CreateDirectory(CachePath);
 
             var mappingStream = FetchFile("mapping.dbdm");
-            mappings = new DBDMReader().Read(mappingStream);
+            Mappings = new DBDMReader().Read(mappingStream);
         }
 
         public EnumDefinition? GetEnumDefinition(string tableName, string columnName)
@@ -43,7 +44,7 @@ namespace DBCD.Providers
             if (cache.TryGetValue(cacheKey, out var cached))
                 return cached;
 
-            foreach (var mapping in mappings)
+            foreach (var mapping in Mappings)
             {
                 if (mapping.meta is MetaType.COLOR)
                     continue;
@@ -71,7 +72,7 @@ namespace DBCD.Providers
 
             var result = new Dictionary<int?, EnumDefinition>();
 
-            foreach (var mapping in mappings)
+            foreach (var mapping in Mappings)
             {
                 if (mapping.meta is MetaType.COLOR)
                     continue;

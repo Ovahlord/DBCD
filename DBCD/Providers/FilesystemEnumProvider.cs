@@ -14,15 +14,16 @@ namespace DBCD.Providers
     public class FilesystemEnumProvider : IEnumProvider
     {
         private readonly string metaDirectory;
-        private readonly List<MappingDefinition> mappings;
         private readonly Dictionary<string, EnumDefinition?> cache = new();
         private readonly Dictionary<string, IReadOnlyDictionary<int?, EnumDefinition>?> arrayCache = new();
+
+        public List<MappingDefinition> Mappings { get; }
 
         /// <param name="dbdmFile">Absolute path to the .dbdm mapping file (e.g. WoWDBDefs/meta/Meta.dbdm).</param>
         public FilesystemEnumProvider(string dbdmFile)
         {
             metaDirectory = Path.GetDirectoryName(dbdmFile)!;
-            mappings = new DBDMReader().Read(dbdmFile);
+            Mappings = new DBDMReader().Read(dbdmFile);
         }
 
         public EnumDefinition? GetEnumDefinition(string tableName, string columnName)
@@ -31,7 +32,7 @@ namespace DBCD.Providers
             if (cache.TryGetValue(cacheKey, out var cached))
                 return cached;
 
-            foreach (var mapping in mappings)
+            foreach (var mapping in Mappings)
             {
                 if (mapping.meta is MetaType.COLOR)
                     continue;
@@ -59,7 +60,7 @@ namespace DBCD.Providers
 
             var result = new Dictionary<int?, EnumDefinition>();
 
-            foreach (var mapping in mappings)
+            foreach (var mapping in Mappings)
             {
                 if (mapping.meta is MetaType.COLOR)
                     continue;

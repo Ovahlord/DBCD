@@ -6,6 +6,11 @@ namespace DBCD.Providers
     public interface IEnumProvider
     {
         /// <summary>
+        /// The list of <see cref="MappingDefinition"/> instances, this contains the actual mapping of field -> meta type -> meta value etc.
+        /// </summary>
+        public List<MappingDefinition> Mappings { get; }
+
+        /// <summary>
         /// Returns the <see cref="EnumDefinition"/> for a non-array table column, or null if none is mapped.
         /// </summary>
         EnumDefinition? GetEnumDefinition(string tableName, string columnName);
