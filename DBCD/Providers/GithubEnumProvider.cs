@@ -39,7 +39,7 @@ namespace DBCD.Providers
 
         public EnumDefinition? GetEnumDefinition(string tableName, string columnName)
         {
-            var cacheKey = $"{tableName}::{columnName}";
+            var cacheKey = $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}";
             if (cache.TryGetValue(cacheKey, out var cached))
                 return cached;
 
@@ -51,7 +51,7 @@ namespace DBCD.Providers
                 if (mapping.arrIndex.HasValue)
                     continue;
 
-                if (mapping.tableName != tableName || mapping.columnName != columnName)
+                if (mapping.tableName.Equals(tableName, StringComparison.OrdinalIgnoreCase) || mapping.columnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 var enumDef = TryReadEnumFile(mapping);
@@ -65,7 +65,7 @@ namespace DBCD.Providers
 
         public IReadOnlyDictionary<int?, EnumDefinition>? GetArrayEnumDefinitions(string tableName, string columnName)
         {
-            var cacheKey = $"{tableName}::{columnName}";
+            var cacheKey = $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}";
             if (arrayCache.TryGetValue(cacheKey, out var cached))
                 return cached;
 
@@ -76,7 +76,7 @@ namespace DBCD.Providers
                 if (mapping.meta is MetaType.COLOR)
                     continue;
 
-                if (mapping.tableName != tableName || mapping.columnName != columnName)
+                if (mapping.tableName.Equals(tableName, StringComparison.OrdinalIgnoreCase) || mapping.columnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 var enumDef = TryReadEnumFile(mapping);
