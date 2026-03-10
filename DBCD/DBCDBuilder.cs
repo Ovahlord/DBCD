@@ -140,8 +140,8 @@ namespace DBCD
                     }
                 }
 
-                // Enum/flags annotation — non-relation integer fields only
-                if (enumProvider != null && !fieldDefinition.isRelation)
+                // Enum/flags annotation — non-relation fields with a known mapping only
+                if (enumProvider != null && !fieldDefinition.isRelation && enumProvider.HasEnumDefinition(name, fieldDefinition.name))
                 {
                     if (fieldDefinition.arrLength == 0)
                     {
@@ -158,33 +158,27 @@ namespace DBCD
                     }
                     else
                     {
-                        // Array: definitions may vary per-index (null key = all indices)
-                        var arrayEnumDefs = enumProvider.GetArrayEnumDefinitions(name, fieldDefinition.name);
-                        if (arrayEnumDefs != null)
+                        // Array: query each index individually; specific-index mappings take priority
+                        // over "applies to all" mappings (handled inside GetEnumDefinition).
+                        EnumDefinition? attributeHint = null;
+
+                        for (var i = 0; i < fieldDefinition.arrLength; i++)
                         {
-                            EnumDefinition? attributeHint = null;
+                            var enumDef = enumProvider.GetEnumDefinition(name, fieldDefinition.name, i);
+                            if (!enumDef.HasValue)
+                                continue;
 
-                            foreach (var (arrIndex, enumDef) in arrayEnumDefs)
-                            {
-                                var enumTypeName = arrIndex.HasValue
-                                    ? $"{name}_{fieldDefinition.name}_{arrIndex}"
-                                    : $"{name}_{fieldDefinition.name}";
+                            var enumTypeName = $"{name}_{fieldDefinition.name}_{i}";
+                            var enumType = BuildEnumType(enumTypeName, enumDef.Value, currentBuild);
+                            enumTypes[$"{fieldDefinition.name}[{i}]"] = enumType;
+                            attributeHint ??= enumDef;
+                        }
 
-                                var enumType = BuildEnumType(enumTypeName, enumDef, currentBuild);
-
-                                // null key -> all elements share this type, keyed by plain field name
-                                // indexed key -> stored as "FieldName[n]" for per-element lookup
-                                var typeKey = arrIndex.HasValue ? $"{fieldDefinition.name}[{arrIndex}]" : fieldDefinition.name;
-                                enumTypes[typeKey] = enumType;
-                                attributeHint ??= enumDef;
-                            }
-
-                            // Tag the field with EnumAttribute so consumers know to check EnumTypes
-                            if (attributeHint.HasValue)
-                            {
-                                var hintTypeName = $"{name}_{fieldDefinition.name}";
-                                AddEnumAttribute(field, hintTypeName, attributeHint.Value.metaType == MetaType.FLAGS);
-                            }
+                        // Tag the field with EnumAttribute so consumers know to check EnumTypes
+                        if (attributeHint.HasValue)
+                        {
+                            var hintTypeName = $"{name}_{fieldDefinition.name}";
+                            AddEnumAttribute(field, hintTypeName, attributeHint.Value.metaType == MetaType.FLAGS);
                         }
                     }
                 }

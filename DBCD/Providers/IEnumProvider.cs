@@ -1,5 +1,8 @@
+using DBDefsLib.Constants;
 using DBDefsLib.Structs;
+using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DBCD.Providers
 {
@@ -11,16 +14,21 @@ namespace DBCD.Providers
         public List<MappingDefinition> Mappings { get; }
 
         /// <summary>
-        /// Returns the <see cref="EnumDefinition"/> for a non-array table column, or null if none is mapped.
+        /// Returns true if any enum or flag mapping exists for the given field, regardless of array index.
+        /// Use this as a fast pre-check before calling <see cref="GetEnumDefinition"/>.
         /// </summary>
-        public EnumDefinition? GetEnumDefinition(string tableName, string columnName);
+        public bool HasEnumDefinition(string tableName, string columnName) =>
+            Mappings.Any(m =>
+                m.meta != MetaType.COLOR &&
+                m.tableName.Equals(tableName, StringComparison.OrdinalIgnoreCase) &&
+                m.columnName.Equals(columnName, StringComparison.OrdinalIgnoreCase));
 
         /// <summary>
-        /// Returns per-index enum definitions for an array field.
-        /// A null key means the definition applies to all elements of the array.
-        /// A non-null key means it applies only to that specific array index.
-        /// Returns null if no mappings exist for this field.
+        /// Returns the <see cref="EnumDefinition"/> for a table column, or null if none is mapped.
+        /// For non-array fields, omit <paramref name="arrayIndex"/> (or pass null).
+        /// For array fields, pass the element index. A specific-index mapping takes priority over
+        /// an "applies to all elements" mapping (indicated by a null <c>arrIndex</c> in the source data).
         /// </summary>
-        public Dictionary<int?, EnumDefinition>? GetArrayEnumDefinitions(string tableName, string columnName);
+        public EnumDefinition? GetEnumDefinition(string tableName, string columnName, int? arrayIndex = null);
     }
 }

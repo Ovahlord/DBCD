@@ -14,8 +14,7 @@ namespace DBCD.Providers
     public class FilesystemEnumProvider : IEnumProvider
     {
         private readonly string metaDirectory;
-        private readonly Dictionary<string, EnumDefinition?> cache = new();
-        private readonly Dictionary<string, Dictionary<int?, EnumDefinition>?> arrayCache = new();
+        private readonly Dictionary<string, EnumDefinition> cache = new();
 
         public List<MappingDefinition> Mappings { get; }
 
@@ -24,58 +23,53 @@ namespace DBCD.Providers
         {
             metaDirectory = Path.GetDirectoryName(dbdmFile)!;
             Mappings = new DBDMReader().Read(dbdmFile);
+            PopulateCache();
         }
 
-        public EnumDefinition? GetEnumDefinition(string tableName, string columnName)
+        public EnumDefinition? GetEnumDefinition(string tableName, string columnName, int? arrayIndex = null)
         {
-            var cacheKey = $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}";
-            if (cache.TryGetValue(cacheKey, out var cached))
-                return cached;
-
-            foreach (var mapping in Mappings)
+            if (arrayIndex.HasValue)
             {
-                if (mapping.meta is MetaType.COLOR)
-                    continue;
+                var specificKey = $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}[{arrayIndex}]";
+                if (cache.TryGetValue(specificKey, out var specific))
+                    return specific;
 
-                if (mapping.arrIndex.HasValue)
-                    continue;
+                // Fall back to an "applies to all" mapping (null arrIndex), stored under the plain key
+                var fallbackKey = $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}";
+                if (cache.TryGetValue(fallbackKey, out var fallback))
+                    return fallback;
 
-                if (!mapping.tableName.Equals(tableName, StringComparison.OrdinalIgnoreCase) || !mapping.columnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                var enumDef = TryReadEnumFile(mapping);
-                cache[cacheKey] = enumDef;
-                return enumDef;
+                return null;
             }
 
-            cache[cacheKey] = null;
-            return null;
+            var key = $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}";
+            return cache.TryGetValue(key, out var cached) ? cached : null;
         }
 
-        public Dictionary<int?, EnumDefinition>? GetArrayEnumDefinitions(string tableName, string columnName)
+        private void PopulateCache()
         {
-            var cacheKey = $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}";
-            if (arrayCache.TryGetValue(cacheKey, out var cached))
-                return cached;
-
-            var result = new Dictionary<int?, EnumDefinition>();
+            // Deduplicate file reads: multiple mappings may point to the same enum/flag file.
+            var fileCache = new Dictionary<string, EnumDefinition?>();
 
             foreach (var mapping in Mappings)
             {
                 if (mapping.meta is MetaType.COLOR)
                     continue;
 
-                if (!mapping.tableName.Equals(tableName, StringComparison.OrdinalIgnoreCase) || !mapping.columnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
-                    continue;
+                var cacheKey = mapping.arrIndex.HasValue
+                    ? $"{mapping.tableName.ToLowerInvariant()}::{mapping.columnName.ToLowerInvariant()}[{mapping.arrIndex}]"
+                    : $"{mapping.tableName.ToLowerInvariant()}::{mapping.columnName.ToLowerInvariant()}";
 
-                var enumDef = TryReadEnumFile(mapping);
+                var fileKey = $"{mapping.meta}::{mapping.metaValue}";
+                if (!fileCache.TryGetValue(fileKey, out var enumDef))
+                {
+                    enumDef = TryReadEnumFile(mapping);
+                    fileCache[fileKey] = enumDef;
+                }
+
                 if (enumDef.HasValue)
-                    result[mapping.arrIndex] = enumDef.Value;
+                    cache[cacheKey] = enumDef.Value;
             }
-
-            var value = result.Count > 0 ? result : null;
-            arrayCache[cacheKey] = value;
-            return value;
         }
 
         private EnumDefinition? TryReadEnumFile(MappingDefinition mapping)

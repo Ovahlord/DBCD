@@ -193,6 +193,12 @@ namespace DBCD
 
         IReadOnlyDictionary<string, Type> EnumTypes { get; }
 
+        /// <summary>
+        /// Returns true if the field name exists in the enum types dictionary.
+        /// For array fields, pass the key with index included (e.g. <c>"Attributes[0]"</c>).
+        /// </summary>
+        bool IsEnumOrFlagField(string fieldName);
+
         DBCDRow ConstructRow(int index);
 
         Dictionary<ulong, int> GetEncryptedSections();
@@ -220,6 +226,8 @@ namespace DBCD
         public uint LayoutHash => this.storage.LayoutHash;
         public IReadOnlyDictionary<string, Type> EnumTypes => this.info.enumTypes;
         public override string ToString() => $"{this.info.tableName}";
+
+        public bool IsEnumOrFlagField(string fieldName) => info.enumTypes?.ContainsKey(fieldName) ?? false;
 
         public DBCDStorage(Stream stream, DBCDInfo info) : this(new DBParser(stream), info) { }
 
