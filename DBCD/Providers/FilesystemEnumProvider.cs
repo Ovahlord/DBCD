@@ -15,7 +15,7 @@ namespace DBCD.Providers
     {
         private readonly string metaDirectory;
         private readonly Dictionary<string, EnumDefinition?> cache = new();
-        private readonly Dictionary<string, IReadOnlyDictionary<int?, EnumDefinition>?> arrayCache = new();
+        private readonly Dictionary<string, Dictionary<int?, EnumDefinition>?> arrayCache = new();
 
         public List<MappingDefinition> Mappings { get; }
 
@@ -52,7 +52,7 @@ namespace DBCD.Providers
             return null;
         }
 
-        public IReadOnlyDictionary<int?, EnumDefinition>? GetArrayEnumDefinitions(string tableName, string columnName)
+        public Dictionary<int?, EnumDefinition>? GetArrayEnumDefinitions(string tableName, string columnName)
         {
             var cacheKey = $"{tableName.ToLowerInvariant()}::{columnName.ToLowerInvariant()}";
             if (arrayCache.TryGetValue(cacheKey, out var cached))
@@ -73,7 +73,7 @@ namespace DBCD.Providers
                     result[mapping.arrIndex] = enumDef.Value;
             }
 
-            IReadOnlyDictionary<int?, EnumDefinition>? value = result.Count > 0 ? result : null;
+            var value = result.Count > 0 ? result : null;
             arrayCache[cacheKey] = value;
             return value;
         }
