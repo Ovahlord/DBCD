@@ -40,7 +40,7 @@ namespace DBCD.Providers
                 if (mapping.arrIndex.HasValue)
                     continue;
 
-                if (mapping.tableName.Equals(tableName, StringComparison.OrdinalIgnoreCase) || mapping.columnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
+                if (!mapping.tableName.Equals(tableName, StringComparison.OrdinalIgnoreCase) || !mapping.columnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 var enumDef = TryReadEnumFile(mapping);
@@ -65,7 +65,7 @@ namespace DBCD.Providers
                 if (mapping.meta is MetaType.COLOR)
                     continue;
 
-                if (mapping.tableName.Equals(tableName, StringComparison.OrdinalIgnoreCase) || mapping.columnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
+                if (!mapping.tableName.Equals(tableName, StringComparison.OrdinalIgnoreCase) || !mapping.columnName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 var enumDef = TryReadEnumFile(mapping);
