@@ -202,12 +202,9 @@ namespace DBCD
         /// </summary>
         private Type BuildEnumType(string typeName, EnumDefinition enumDef, Build currentBuild)
         {
+            var enumBuilder = moduleBuilder.DefineEnum(typeName, TypeAttributes.Public, typeof(long));
+
             var isFlags = enumDef.metaType == MetaType.FLAGS;
-            // FLAGS values can reach 0x80000000 so use uint; ENUM values are plain ints
-            var underlyingType = isFlags ? typeof(uint) : typeof(int);
-
-            var enumBuilder = moduleBuilder.DefineEnum(typeName, TypeAttributes.Public, underlyingType);
-
             if (isFlags)
             {
                 var flagsCtor = typeof(FlagsAttribute).GetConstructor(Type.EmptyTypes);
