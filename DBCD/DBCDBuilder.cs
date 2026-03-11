@@ -219,10 +219,7 @@ namespace DBCD
                 if (!EntryMatchesBuild(entry, currentBuild))
                     continue;
 
-                if (isFlags)
-                    enumBuilder.DefineLiteral(entry.name, (uint)entry.value);
-                else
-                    enumBuilder.DefineLiteral(entry.name, (int)entry.value);
+                enumBuilder.DefineLiteral(entry.name, (long)entry.value);
             }
 
             return enumBuilder.CreateTypeInfo();
