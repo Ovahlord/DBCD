@@ -15,7 +15,7 @@ namespace DBCD
         private readonly IEnumProvider enumProvider;
 
         private readonly bool useBDBD;
-        private readonly Dictionary<string, TableInfo> BDBDCache;
+        private readonly Dictionary<string, TableInfo> BDBDTableCache;
 
         /// <summary>
         /// Creates a DBCD instance that uses the given DBC and DBD providers.
@@ -43,7 +43,9 @@ namespace DBCD
             this.dbcProvider = dbcProvider;
             this.enumProvider = enumProvider;
             this.useBDBD = true;
-            this.BDBDCache = BDBDReader.Read(bdbdStream);
+
+            var bdbd = BDBDReader.Read(bdbdStream);
+            BDBDTableCache = bdbd.tableDefinitions;
         }
 
         /// <summary>
@@ -67,7 +69,7 @@ namespace DBCD
             }
             else
             {
-                if (!BDBDCache.TryGetValue(tableName, out var tableInfo))
+                if (!BDBDTableCache.TryGetValue(tableName, out var tableInfo))
                     throw new FileNotFoundException($"Table {tableName} not found in BDBD.");
 
                 databaseDefinition = tableInfo.dbd;
