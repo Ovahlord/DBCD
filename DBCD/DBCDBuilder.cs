@@ -151,7 +151,7 @@ namespace DBCD
                         {
                             var isFlags = enumDef.Value.metaType == MetaType.FLAGS;
                             var enumTypeName = $"{name}_{fieldDefinition.name}";
-                            var enumType = BuildEnumType(enumTypeName, enumDef.Value, currentBuild);
+                            var enumType = BuildEnumType(enumTypeName, enumDef.Value, currentBuild, fieldType);
                             enumTypes[fieldDefinition.name] = enumType;
                             AddEnumAttribute(field, enumTypeName, isFlags);
                         }
@@ -169,7 +169,7 @@ namespace DBCD
                                 continue;
 
                             var enumTypeName = $"{name}_{fieldDefinition.name}_{i}";
-                            var enumType = BuildEnumType(enumTypeName, enumDef.Value, currentBuild);
+                            var enumType = BuildEnumType(enumTypeName, enumDef.Value, currentBuild, fieldType.GetElementType());
                             enumTypes[$"{fieldDefinition.name}[{i}]"] = enumType;
                             attributeHint ??= enumDef;
                         }
@@ -200,9 +200,9 @@ namespace DBCD
         /// Dynamically generates an enum type from an <see cref="EnumDefinition"/>,
         /// optionally filtered to entries that match <paramref name="currentBuild"/>.
         /// </summary>
-        private Type BuildEnumType(string typeName, EnumDefinition enumDef, Build currentBuild)
+        private Type BuildEnumType(string typeName, EnumDefinition enumDef, Build currentBuild, Type underlyingType)
         {
-            var enumBuilder = moduleBuilder.DefineEnum(typeName, TypeAttributes.Public, typeof(long));
+            var enumBuilder = moduleBuilder.DefineEnum(typeName, TypeAttributes.Public, underlyingType);
 
             var isFlags = enumDef.metaType == MetaType.FLAGS;
             if (isFlags)
@@ -219,7 +219,29 @@ namespace DBCD
                 if (!EntryMatchesBuild(entry, currentBuild))
                     continue;
 
-                enumBuilder.DefineLiteral(entry.name, (long)entry.value);
+                // Bit of a hack to return the correct type, unchecked on signed types to not care about overflows (e.g. 0x80000000 for Map::Flags0 FORCE_CUSTOM_UI_MAP)
+                object value = null;
+
+                if (underlyingType == typeof(sbyte))
+                    value = unchecked((sbyte)entry.value);
+                else if (underlyingType == typeof(byte))
+                    value = (byte)entry.value;
+                else if (underlyingType == typeof(short))
+                    value = unchecked((short)entry.value);
+                else if (underlyingType == typeof(ushort))
+                    value = (ushort)entry.value;
+                else if (underlyingType == typeof(int))
+                    value = unchecked((int)entry.value);
+                else if (underlyingType == typeof(uint))
+                    value = (uint)entry.value;
+                else if (underlyingType == typeof(long))
+                    value = entry.value;
+                else if (underlyingType == typeof(ulong))
+                    value = unchecked((ulong)entry.value);
+                else
+                    throw new Exception("Unsupported underlying type for enum: " + underlyingType.ToString());
+
+                enumBuilder.DefineLiteral(entry.name, value);
             }
 
             return enumBuilder.CreateTypeInfo();
