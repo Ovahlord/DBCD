@@ -1,6 +1,7 @@
 ﻿using DBCD.Providers;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace DBCD.Tests
@@ -208,7 +209,6 @@ namespace DBCD.Tests
         //    System.Console.WriteLine($"B: {countBefore} => A: {countAfter}");
         //}
 
-
         //[TestMethod]
         //public void TestFilesystemDBDProvider()
         //{
@@ -217,5 +217,30 @@ namespace DBCD.Tests
         //    // Spell is present in Classic Era -> Retail: https://www.wowhead.com/spell=17/
         //    Assert.AreEqual("Power Word: Shield", storage[17]["Name_lang"]);
         //}
+
+        [TestMethod]
+        public void TestEnumReadingSingle()
+        {
+            var dbcd = new DBCD(wagoDBCProvider, githubDBDProvider, new GithubEnumProvider(useCache: true));
+
+            var storage = dbcd.Load("SpellEffect", "12.0.1.66220");
+            var spellEffectRow = storage[1177101];
+            Assert.AreEqual(spellEffectRow.IsEnumMember("Effect", "SET_PLAYER_DATA_ELEMENT_ACCOUNT"), true);
+        }
+
+        [TestMethod]
+        public void TestEnumReadingArray()
+        {
+            var dbcd = new DBCD(wagoDBCProvider, githubDBDProvider, new GithubEnumProvider(useCache: true));
+
+            var storage = dbcd.Load("SpellMisc", "12.0.1.66220");
+            var spellMiscRow = storage[66253];
+
+            Assert.AreEqual(spellMiscRow.HasFlag("Attributes", 0, "ON_NEXT_SWING"), false);
+            Assert.AreEqual(spellMiscRow.HasFlag("Attributes", 0, "HIDDEN_CLIENTSIDE"), true);
+
+            // Throws an exception because the Enum Member is not in the Enum
+            Assert.ThrowsException<KeyNotFoundException>(() => spellMiscRow.HasFlag("Attributes", 1, "HIDDEN_CLIENTSIDE"));
+        }
     }
 }

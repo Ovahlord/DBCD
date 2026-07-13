@@ -4,27 +4,30 @@ using DBDefsLib;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using DBDefsLib.Structs;
 
 namespace DBCD
 {
-
     public class DBCD
     {
         private readonly IDBCProvider dbcProvider;
         private readonly IDBDProvider dbdProvider;
+        private readonly IEnumProvider enumProvider;
 
         private readonly bool useBDBD;
-        private readonly Dictionary<string, Structs.TableInfo> BDBDCache;
+        private readonly Dictionary<string, TableInfo> BDBDTableCache;
 
         /// <summary>
         /// Creates a DBCD instance that uses the given DBC and DBD providers.
         /// </summary>
         /// <param name="dbcProvider">The IDBCProvider for DBC files.</param>
         /// <param name="dbdProvider">The IDBDProvider for DBD files.</param>
-        public DBCD(IDBCProvider dbcProvider, IDBDProvider dbdProvider)
+        /// <param name="enumProvider">(EXPERIMENTAL) The optional IEnumProvider for enum/flag metadata. Supplying this makes applicable values appear as flag/enum types.</param>
+        public DBCD(IDBCProvider dbcProvider, IDBDProvider dbdProvider, IEnumProvider enumProvider = null)
         {
             this.dbcProvider = dbcProvider;
             this.dbdProvider = dbdProvider;
+            this.enumProvider = enumProvider;
             this.useBDBD = false;
         }
 
@@ -33,12 +36,16 @@ namespace DBCD
         /// </summary>
         /// <param name="dbcProvider">The IDBCProvider for DBC files.</param>
         /// <param name="bdbdStream">The stream for a BDBD (Binary DBD) file to load all definitions from.</param>
+        /// <param name="enumProvider">(EXPERIMENTAL) The optional IEnumProvider for enum/flag metadata. Supplying this makes applicable values appear as flag/enum types.</param>
         /// <remarks>WARNING: The usage of a BDBD file for supplying definitions is still experimental and currently has little to no advantages.</remarks>
-        public DBCD(IDBCProvider dbcProvider, Stream bdbdStream)
+        public DBCD(IDBCProvider dbcProvider, Stream bdbdStream, IEnumProvider enumProvider = null)
         {
             this.dbcProvider = dbcProvider;
+            this.enumProvider = enumProvider;
             this.useBDBD = true;
-            this.BDBDCache = BDBDReader.Read(bdbdStream);
+
+            var bdbd = BDBDReader.Read(bdbdStream);
+            BDBDTableCache = bdbd.tableDefinitions;
         }
 
         /// <summary>
@@ -52,7 +59,7 @@ namespace DBCD
         {
             var dbcStream = this.dbcProvider.StreamForTableName(tableName, build);
 
-            Structs.DBDefinition databaseDefinition;
+            DBDefinition databaseDefinition;
 
             if (!useBDBD)
             {
@@ -62,23 +69,19 @@ namespace DBCD
             }
             else
             {
-                if (!BDBDCache.TryGetValue(tableName, out var tableInfo))
+                if (!BDBDTableCache.TryGetValue(tableName, out var tableInfo))
                     throw new FileNotFoundException($"Table {tableName} not found in BDBD.");
 
                 databaseDefinition = tableInfo.dbd;
             }
 
-            var builder = new DBCDBuilder(locale);
+            var builder = new DBCDBuilder(locale, enumProvider);
 
             var dbReader = new DBParser(dbcStream);
             var definition = builder.Build(dbReader, databaseDefinition, tableName, build);
 
-            var type = typeof(DBCDStorage<>).MakeGenericType(definition.Item1);
-
-            return (IDBCDStorage)Activator.CreateInstance(type, new object[2] {
-                dbReader,
-                definition.Item2
-            });
+            var type = typeof(DBCDStorage<>).MakeGenericType(definition.Type);
+            return (IDBCDStorage)Activator.CreateInstance(type, dbReader, definition.Info);
         }
     }
 

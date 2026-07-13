@@ -348,3 +348,6 @@ MigrationBackup/
 
 # Private Providers
 DBCD/Providers/MirrorDBCProvider.cs
+
+# Rider
+.idea/
