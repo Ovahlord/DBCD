@@ -22,7 +22,7 @@ namespace DBCD
         /// </summary>
         /// <param name="dbcProvider">The IDBCProvider for DBC files.</param>
         /// <param name="dbdProvider">The IDBDProvider for DBD files.</param>
-        /// <param name="enumProvider">The optional IEnumProvider for enum/flag metadata.</param>
+        /// <param name="enumProvider">(EXPERIMENTAL) The optional IEnumProvider for enum/flag metadata. Supplying this makes applicable values appear as flag/enum types.</param>
         public DBCD(IDBCProvider dbcProvider, IDBDProvider dbdProvider, IEnumProvider enumProvider = null)
         {
             this.dbcProvider = dbcProvider;
@@ -36,7 +36,7 @@ namespace DBCD
         /// </summary>
         /// <param name="dbcProvider">The IDBCProvider for DBC files.</param>
         /// <param name="bdbdStream">The stream for a BDBD (Binary DBD) file to load all definitions from.</param>
-        /// <param name="enumProvider">The optional IEnumProvider for enum/flag metadata.</param>
+        /// <param name="enumProvider">(EXPERIMENTAL) The optional IEnumProvider for enum/flag metadata. Supplying this makes applicable values appear as flag/enum types.</param>
         /// <remarks>WARNING: The usage of a BDBD file for supplying definitions is still experimental and currently has little to no advantages.</remarks>
         public DBCD(IDBCProvider dbcProvider, Stream bdbdStream, IEnumProvider enumProvider = null)
         {
