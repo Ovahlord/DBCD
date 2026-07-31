@@ -50,27 +50,40 @@ namespace DBCD.Benchmark.Benchmarks
 
         public static Dictionary<long, string> ReadStringTable(this BinaryReader reader, int stringTableSize, int baseOffset = 0, bool usePos = false)
         {
-            var StringTable = new Dictionary<long, string>(stringTableSize / 0x20);
-
             if (stringTableSize == 0)
-                return StringTable;
+                return [];
+            
+            var stringTable = new Dictionary<long, string>(stringTableSize / 0x20);
 
-            var curOfs = 0;
-            var decoded = Encoding.UTF8.GetString(reader.ReadBytes(stringTableSize));
-            foreach (var str in decoded.Split('\0'))
+            Span<byte> stringTableBytes = stackalloc byte[stringTableSize];
+            _ = reader.Read(stringTableBytes);
+            
+            int start = 0;
+            for (int i = 0; i < stringTableBytes.Length; ++i)
             {
-                if (curOfs == stringTableSize)
-                    break;
-
+                if (stringTableBytes[i] == 0)
+                {
+                    string str = Encoding.UTF8.GetString(stringTableBytes.Slice(start, i - start));
+                    if (usePos)
+                        stringTable[reader.BaseStream.Position - stringTableSize + start] = str;
+                    else
+                        stringTable[baseOffset + start] = str;
+                        
+                    start = i + 1;
+                }
+            }
+            
+            // Trailing string
+            if (start < stringTableBytes.Length)
+            {
+                string str = Encoding.UTF8.GetString(stringTableBytes.Slice(start));
                 if (usePos)
-                    StringTable[(reader.BaseStream.Position - stringTableSize) + curOfs] = str;
+                    stringTable[reader.BaseStream.Position - stringTableSize + start] = str;
                 else
-                    StringTable[baseOffset + curOfs] = str;
-
-                curOfs += Encoding.UTF8.GetByteCount(str) + 1;
+                    stringTable[baseOffset + start] = str;
             }
 
-            return StringTable;
+            return stringTable;
         }
     }
 }

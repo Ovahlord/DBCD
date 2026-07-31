@@ -6,6 +6,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace DBCD.IO
@@ -50,10 +51,10 @@ namespace DBCD.IO
 
         public static T Read<T>(this BinaryReader reader) where T : struct
         {
-            byte[] result = reader.ReadBytes(Unsafe.SizeOf<T>());
+            Span<byte> result = stackalloc byte[Unsafe.SizeOf<T>()];
+            _ = reader.Read(result);
             return Unsafe.ReadUnaligned<T>(ref result[0]);
         }
-
 
         /// <summary>
         /// Reads a NUL-separated string table from the current stream
@@ -64,45 +65,58 @@ namespace DBCD.IO
         /// <param name="baseOffset">Base offset to use for the string table keys</param>
         public static Dictionary<long, string> ReadStringTable(this BinaryReader reader, int stringTableSize, int baseOffset = 0, bool usePos = false)
         {
-            var StringTable = new Dictionary<long, string>(stringTableSize / 0x20);
+            if (stringTableSize == 0)
+                return [];
+            
+            var stringTable = new Dictionary<long, string>(stringTableSize / 0x20);
 
-            if(stringTableSize == 0)
-                return StringTable;
-
-            var curOfs = 0;
-            var decoded = Encoding.UTF8.GetString(reader.ReadBytes(stringTableSize));
-            foreach (var str in decoded.Split('\0'))
+            Span<byte> stringTableBytes = stackalloc byte[stringTableSize];
+            _ = reader.Read(stringTableBytes);
+            
+            int start = 0;
+            for (int i = 0; i < stringTableBytes.Length; ++i)
             {
-                if (curOfs == stringTableSize)
-                    break;
-
-                if(usePos)
-                    StringTable[(reader.BaseStream.Position - stringTableSize) + curOfs] = str;
+                if (stringTableBytes[i] == 0)
+                {
+                    string str = Encoding.UTF8.GetString(stringTableBytes.Slice(start, i - start));
+                    if (usePos)
+                        stringTable[reader.BaseStream.Position - stringTableSize + start] = str;
+                    else
+                        stringTable[baseOffset + start] = str;
+                        
+                    start = i + 1;
+                }
+            }
+            
+            // Trailing string
+            if (start < stringTableBytes.Length)
+            {
+                string str = Encoding.UTF8.GetString(stringTableBytes.Slice(start));
+                if (usePos)
+                    stringTable[reader.BaseStream.Position - stringTableSize + start] = str;
                 else
-                    StringTable[baseOffset + curOfs] = str;
-
-                curOfs += Encoding.UTF8.GetByteCount(str) + 1;
+                    stringTable[baseOffset + start] = str;
             }
 
-            return StringTable;
+            return stringTable;
         }
 
         public static T[] ReadArray<T>(this BinaryReader reader) where T : struct
         {
             int numBytes = (int)reader.ReadInt64();
-
-            byte[] result = reader.ReadBytes(numBytes);
+            Span<byte> result = stackalloc byte[numBytes];
+            _ = reader.Read(result);
 
             reader.BaseStream.Position += (0 - numBytes) & 0x07;
-            return result.CopyTo<T>();
+            return MemoryMarshal.Cast<byte, T>(result).ToArray();
         }
 
         public static T[] ReadArray<T>(this BinaryReader reader, int size) where T : struct
         {
             int numBytes = Unsafe.SizeOf<T>() * size;
-
-            byte[] result = reader.ReadBytes(numBytes);
-            return result.CopyTo<T>();
+            Span<byte> result = stackalloc byte[numBytes];
+            _ = reader.Read(result);
+            return MemoryMarshal.Cast<byte, T>(result).ToArray();
         }
 
         public static unsafe T[] CopyTo<T>(this byte[] src) where T : struct
@@ -171,7 +185,7 @@ namespace DBCD.IO
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static string ReadCString(this BinaryReader reader, Encoding encoding)
         {
-            var bytes = new System.Collections.Generic.List<byte>(0x20);
+            var bytes = new List<byte>(0x20);
             byte b;
             while ((b = reader.ReadByte()) != 0)
                 bytes.Add(b);
