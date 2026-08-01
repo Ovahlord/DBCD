@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
 using System.IO;
@@ -70,35 +71,43 @@ namespace DBCD.IO
             
             var stringTable = new Dictionary<long, string>(stringTableSize / 0x20);
 
-            Span<byte> stringTableBytes = stackalloc byte[stringTableSize];
-            _ = reader.Read(stringTableBytes);
-            
-            int start = 0;
-            for (int i = 0; i < stringTableBytes.Length; ++i)
+            byte[] stringTableBytes = ArrayPool<byte>.Shared.Rent(stringTableSize); // may return a lager buffer than requested
+            Span<byte> bufferSpan = stringTableBytes.AsSpan(0, stringTableSize);
+            _ = reader.Read(bufferSpan);
+
+            try
             {
-                if (stringTableBytes[i] == 0)
+                int start = 0;
+                for (int i = 0; i < stringTableBytes.Length; ++i)
                 {
-                    string str = Encoding.UTF8.GetString(stringTableBytes.Slice(start, i - start));
+                    if (stringTableBytes[i] == 0)
+                    {
+                        string str = Encoding.UTF8.GetString(bufferSpan.Slice(start, i - start));
+                        if (usePos)
+                            stringTable[reader.BaseStream.Position - stringTableSize + start] = str;
+                        else
+                            stringTable[baseOffset + start] = str;
+
+                        start = i + 1;
+                    }
+                }
+
+                // Trailing string
+                if (start < stringTableBytes.Length)
+                {
+                    string str = Encoding.UTF8.GetString(bufferSpan.Slice(start));
                     if (usePos)
                         stringTable[reader.BaseStream.Position - stringTableSize + start] = str;
                     else
                         stringTable[baseOffset + start] = str;
-                        
-                    start = i + 1;
                 }
-            }
-            
-            // Trailing string
-            if (start < stringTableBytes.Length)
-            {
-                string str = Encoding.UTF8.GetString(stringTableBytes.Slice(start));
-                if (usePos)
-                    stringTable[reader.BaseStream.Position - stringTableSize + start] = str;
-                else
-                    stringTable[baseOffset + start] = str;
-            }
 
-            return stringTable;
+                return stringTable;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(stringTableBytes);
+            }
         }
 
         public static T[] ReadArray<T>(this BinaryReader reader) where T : struct
