@@ -56,8 +56,7 @@ namespace DBCD.Benchmark.Benchmarks
 
             var stringTable = new Dictionary<long, string>(stringTableSize / 0x20);
 
-            byte[] stringTableBytes =
-                ArrayPool<byte>.Shared.Rent(stringTableSize); // may return a lager buffer than requested
+            byte[] stringTableBytes = ArrayPool<byte>.Shared.Rent(stringTableSize); // may return a lager buffer than requested
             Span<byte> bufferSpan = stringTableBytes.AsSpan(0, stringTableSize);
             _ = reader.Read(bufferSpan);
 
