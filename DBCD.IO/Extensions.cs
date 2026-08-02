@@ -68,7 +68,7 @@ namespace DBCD.IO
         {
             if (stringTableSize == 0)
                 return [];
-            
+
             var stringTable = new Dictionary<long, string>(stringTableSize / 0x20);
 
             byte[] stringTableBytes = ArrayPool<byte>.Shared.Rent(stringTableSize); // may return a lager buffer than requested
@@ -78,7 +78,7 @@ namespace DBCD.IO
             try
             {
                 int start = 0;
-                for (int i = 0; i < stringTableBytes.Length; ++i)
+                for (int i = 0; i < bufferSpan.Length; ++i)
                 {
                     if (stringTableBytes[i] == 0)
                     {
@@ -93,7 +93,7 @@ namespace DBCD.IO
                 }
 
                 // Trailing string
-                if (start < stringTableBytes.Length)
+                if (start < bufferSpan.Length)
                 {
                     string str = Encoding.UTF8.GetString(bufferSpan.Slice(start));
                     if (usePos)
@@ -113,19 +113,35 @@ namespace DBCD.IO
         public static T[] ReadArray<T>(this BinaryReader reader) where T : struct
         {
             int numBytes = (int)reader.ReadInt64();
-            Span<byte> result = stackalloc byte[numBytes];
-            _ = reader.Read(result);
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(numBytes); // may return a lager buffer than requested
+            Span<byte> result = buffer.AsSpan(0, numBytes);
 
-            reader.BaseStream.Position += (0 - numBytes) & 0x07;
-            return MemoryMarshal.Cast<byte, T>(result).ToArray();
+            try
+            {
+                _ = reader.Read(result);
+                reader.BaseStream.Position += (0 - numBytes) & 0x07;
+                return MemoryMarshal.Cast<byte, T>(result).ToArray();
+            }
+            finally
+            { 
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
 
         public static T[] ReadArray<T>(this BinaryReader reader, int size) where T : struct
         {
             int numBytes = Unsafe.SizeOf<T>() * size;
-            Span<byte> result = stackalloc byte[numBytes];
-            _ = reader.Read(result);
-            return MemoryMarshal.Cast<byte, T>(result).ToArray();
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(numBytes); // may return a lager buffer than requested
+            Span<byte> result = buffer.AsSpan(0, numBytes);
+            try
+            {
+                _ = reader.Read(result);
+                return MemoryMarshal.Cast<byte, T>(result).ToArray();
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
 
         public static unsafe T[] CopyTo<T>(this byte[] src) where T : struct

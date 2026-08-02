@@ -63,7 +63,7 @@ namespace DBCD.Benchmark.Benchmarks
             try
             {
                 int start = 0;
-                for (int i = 0; i < stringTableBytes.Length; ++i)
+                for (int i = 0; i < bufferSpan.Length; ++i)
                 {
                     if (stringTableBytes[i] == 0)
                     {
@@ -78,7 +78,7 @@ namespace DBCD.Benchmark.Benchmarks
                 }
 
                 // Trailing string
-                if (start < stringTableBytes.Length)
+                if (start < bufferSpan.Length)
                 {
                     string str = Encoding.UTF8.GetString(bufferSpan.Slice(start));
                     if (usePos)
