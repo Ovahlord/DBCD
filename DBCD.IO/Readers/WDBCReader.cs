@@ -25,19 +25,6 @@ namespace DBCD.IO.Readers
             Id = m_recordIndex = recordIndex + 1;
         }
 
-        private static Dictionary<Type, Func<BitReader, Dictionary<long, string>, BaseReader, object>> simpleReaders = new Dictionary<Type, Func<BitReader, Dictionary<long, string>, BaseReader, object>>
-        {
-            [typeof(long)] = (data, stringTable, header) => GetFieldValue<long>(data),
-            [typeof(float)] = (data, stringTable, header) => GetFieldValue<float>(data),
-            [typeof(int)] = (data, stringTable, header) => GetFieldValue<int>(data),
-            [typeof(uint)] = (data, stringTable, header) => GetFieldValue<uint>(data),
-            [typeof(short)] = (data, stringTable, header) => GetFieldValue<short>(data),
-            [typeof(ushort)] = (data, stringTable, header) => GetFieldValue<ushort>(data),
-            [typeof(sbyte)] = (data, stringTable, header) => GetFieldValue<sbyte>(data),
-            [typeof(byte)] = (data, stringTable, header) => GetFieldValue<byte>(data),
-            [typeof(string)] = (data, stringTable, header) => stringTable[GetFieldValue<int>(data)],
-        };
-
         private static Dictionary<Type, Func<BitReader, Dictionary<long, string>, int, object>> arrayReaders = new Dictionary<Type, Func<BitReader, Dictionary<long, string>, int, object>>
         {
             [typeof(ulong[])] = (data, stringTable, cardinality) => GetFieldValueArray<ulong>(data, cardinality),
@@ -61,34 +48,25 @@ namespace DBCD.IO.Readers
                 if (info.IndexMapField)
                 {
                     Id = GetFieldValue<int>(Data);
-                    info.Setter(entry, Convert.ChangeType(Id, info.FieldType));
+                    info.Setter.SetObject(entry, Convert.ChangeType(Id, info.FieldType));
                     continue;
                 }
-
-                object value = null;
 
                 if (info.IsArray)
                 {
                     if (arrayReaders.TryGetValue(info.FieldType, out var reader))
-                        value = reader(Data, m_reader.StringTable, info.Cardinality);
+                        info.Setter.SetObject(entry, reader(Data, m_reader.StringTable, info.Cardinality));
                     else
                         throw new Exception("Unhandled array type: " + typeof(T).Name);
                 }
                 else if (info.IsLocalisedString)
                 {
                     Data.Position += 32 * info.LocaleInfo.Locale;
-                    value = simpleReaders[typeof(string)](Data, m_reader.StringTable, m_reader);
+                    info.Setter.SetObject(entry, m_reader.StringTable[GetFieldValue<int>(Data)]);
                     Data.Position += 32 * (info.LocaleInfo.LocaleCount - info.LocaleInfo.Locale);
                 }
                 else
-                {
-                    if (simpleReaders.TryGetValue(info.FieldType, out var reader))
-                        value = reader(Data, m_reader.StringTable, m_reader);
-                    else
-                        throw new Exception("Unhandled field type: " + typeof(T).Name);
-                }
-
-                info.Setter(entry, value);
+                    ReadStronglyTyped(entry, info, Data, m_reader.StringTable);
             }
         }
 
@@ -104,6 +82,33 @@ namespace DBCD.IO.Readers
                 array[i] = r.ReadValue64(Unsafe.SizeOf<T>() * 8).GetValue<T>();
 
             return array;
+        }
+        
+        private static void ReadStronglyTyped<T>(T record, FieldCache<T> info, BitReader data, Dictionary<long, string> stringTable)
+        {
+            // This is not very pretty, but it is required to avoid boxing the read values
+            if (info.FieldType == typeof(ulong))
+                info.Setter.SetValue(record, GetFieldValue<ulong>(data));
+            else if (info.FieldType == typeof(long))
+                info.Setter.SetValue(record, GetFieldValue<long>(data));
+            else if (info.FieldType == typeof(float))
+                info.Setter.SetValue(record, GetFieldValue<float>(data));
+            else if (info.FieldType == typeof(uint))
+                info.Setter.SetValue(record, GetFieldValue<uint>(data));
+            else if (info.FieldType == typeof(int))
+                info.Setter.SetValue(record, GetFieldValue<int>(data));
+            else if (info.FieldType == typeof(ushort))
+                info.Setter.SetValue(record, GetFieldValue<ushort>(data));
+            else if (info.FieldType == typeof(short))
+                info.Setter.SetValue(record, GetFieldValue<short>(data));
+            else if (info.FieldType == typeof(byte))
+                info.Setter.SetValue(record, GetFieldValue<byte>(data));
+            else if (info.FieldType == typeof(sbyte))
+                info.Setter.SetValue(record, GetFieldValue<sbyte>(data));
+            else if (info.FieldType == typeof(string))
+                info.Setter.SetObject(record, stringTable[GetFieldValue<int>(data)]);
+            else
+                throw new Exception("Unhandled field type: " + typeof(T).Name);
         }
 
         public IDBRow Clone()

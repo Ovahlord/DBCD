@@ -80,17 +80,16 @@ namespace DBCD.IO.Readers
                     else
                         Id = GetFieldValue<int>(0, Data, m_fieldMeta[i], CommonData?[i]);
 
-                    info.Setter(entry, Convert.ChangeType(Id, info.FieldType));
+                    info.Setter.SetObject(entry, Convert.ChangeType(Id, info.FieldType));
                     continue;
                 }
 
-                object value = null;
                 int fieldIndex = i - indexFieldOffSet;
 
                 // 0x2 SecondaryKey
                 if (fieldIndex >= m_reader.Meta.Length)
                 {
-                    info.Setter(entry, Convert.ChangeType(m_reader.ForeignKeyData[Id - m_reader.MinIndex], info.FieldType));
+                    info.Setter.SetObject(entry, Convert.ChangeType(m_reader.ForeignKeyData[Id - m_reader.MinIndex], info.FieldType));
                     continue;
                 }
 
@@ -100,19 +99,12 @@ namespace DBCD.IO.Readers
                         SetCardinality(info, fieldIndex);
 
                     if (arrayReaders.TryGetValue(info.FieldType, out var reader))
-                        value = reader(Id, Data, m_fieldMeta[fieldIndex], CommonData?[fieldIndex], m_reader.StringTable, info.Cardinality);
+                        info.Setter.SetObject(entry, reader(Id, Data, m_fieldMeta[fieldIndex], CommonData?[fieldIndex], m_reader.StringTable, info.Cardinality));
                     else
                         throw new Exception("Unhandled array type: " + typeof(T).Name);
                 }
                 else
-                {
-                    if (simpleReaders.TryGetValue(info.FieldType, out var reader))
-                        value = reader(Id, Data, m_fieldMeta[fieldIndex], CommonData?[fieldIndex], m_reader.StringTable, m_reader);
-                    else
-                        throw new Exception("Unhandled field type: " + typeof(T).Name);
-                }
-
-                info.Setter(entry, value);
+                    ReadStronglyTyped(entry, info, Id, Data, m_fieldMeta[fieldIndex], CommonData?[fieldIndex], m_reader.StringTable, m_reader);
             }
         }
 
@@ -160,6 +152,37 @@ namespace DBCD.IO.Readers
             return array;
         }
 
+        private static void ReadStronglyTyped<T>(T record, FieldCache<T> info, int id, BitReader data, FieldMetaData fieldMeta, Dictionary<int, Value32> commonData, Dictionary<long, string> stringTable, BaseReader header)
+        {
+            // This is not very pretty, but it is required to avoid boxing the read values
+            if (info.FieldType == typeof(ulong))
+                info.Setter.SetValue(record, GetFieldValue<ulong>(id, data, fieldMeta, commonData));
+            else if (info.FieldType == typeof(long))
+                info.Setter.SetValue(record, GetFieldValue<long>(id, data, fieldMeta, commonData));
+            else if (info.FieldType == typeof(float))
+                info.Setter.SetValue(record, GetFieldValue<float>(id, data, fieldMeta, commonData));
+            else if (info.FieldType == typeof(uint))
+                info.Setter.SetValue(record, GetFieldValue<uint>(id, data, fieldMeta, commonData));
+            else if (info.FieldType == typeof(int))
+                info.Setter.SetValue(record, GetFieldValue<int>(id, data, fieldMeta, commonData));
+            else if (info.FieldType == typeof(ushort))
+                info.Setter.SetValue(record, GetFieldValue<ushort>(id, data, fieldMeta, commonData));
+            else if (info.FieldType == typeof(short))
+                info.Setter.SetValue(record, GetFieldValue<short>(id, data, fieldMeta, commonData));
+            else if (info.FieldType == typeof(byte))
+                info.Setter.SetValue(record, GetFieldValue<byte>(id, data, fieldMeta, commonData));
+            else if (info.FieldType == typeof(sbyte))
+                info.Setter.SetValue(record, GetFieldValue<sbyte>(id, data, fieldMeta, commonData));
+            else if (info.FieldType == typeof(string))
+            {
+                string stringValue = header.Flags.HasFlagExt(DB2Flags.Sparse) ? 
+                    data.ReadCString() : stringTable[GetFieldValue<int>(id, data, fieldMeta, commonData)];
+                info.Setter.SetObject(record, stringValue);
+            }
+            else
+                throw new Exception("Unhandled field type: " + typeof(T).Name);
+        }
+        
         public IDBRow Clone()
         {
             return (IDBRow)MemberwiseClone();

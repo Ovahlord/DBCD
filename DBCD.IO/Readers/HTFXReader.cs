@@ -68,7 +68,7 @@ namespace DBCD.IO.Readers
                 FieldCache<T> info = fields[i];
                 if (info.IndexMapField)
                 {
-                    info.Setter(entry, Convert.ChangeType(Id, info.FieldType));
+                    info.Setter.SetObject(entry, Convert.ChangeType(Id, info.FieldType));
                     continue;
                 }
 
@@ -92,11 +92,11 @@ namespace DBCD.IO.Readers
                 if (info.IsNonInlineRelation)
                 {
                     var casted = Convert.ChangeType(value, info.FieldType);
-                    info.Setter(entry, casted);
+                    info.Setter.SetObject(entry, casted);
                 }
                 else
                 {
-                    info.Setter(entry, value);
+                    info.Setter.SetObject(entry, value);
                 }
             }
         }
@@ -115,7 +115,33 @@ namespace DBCD.IO.Readers
             return array;
         }
 
-
+        private static void ReadStronglyTyped<T>(T record, FieldCache<T> info, BitReader data)
+        {
+            // This is not very pretty, but it is required to avoid boxing the read values
+            if (info.FieldType == typeof(ulong))
+                info.Setter.SetValue(record, GetFieldValue<ulong>(data));
+            else if (info.FieldType == typeof(long))
+                info.Setter.SetValue(record, GetFieldValue<long>(data));
+            else if (info.FieldType == typeof(float))
+                info.Setter.SetValue(record, GetFieldValue<float>(data));
+            else if (info.FieldType == typeof(uint))
+                info.Setter.SetValue(record, GetFieldValue<uint>(data));
+            else if (info.FieldType == typeof(int))
+                info.Setter.SetValue(record, GetFieldValue<int>(data));
+            else if (info.FieldType == typeof(ushort))
+                info.Setter.SetValue(record, GetFieldValue<ushort>(data));
+            else if (info.FieldType == typeof(short))
+                info.Setter.SetValue(record, GetFieldValue<short>(data));
+            else if (info.FieldType == typeof(byte))
+                info.Setter.SetValue(record, GetFieldValue<byte>(data));
+            else if (info.FieldType == typeof(sbyte))
+                info.Setter.SetValue(record, GetFieldValue<sbyte>(data));
+            else if (info.FieldType == typeof(string))
+                info.Setter.SetObject(record, data.ReadCString());
+            else
+                throw new Exception("Unhandled field type: " + typeof(T).Name);
+        }
+        
         #region Interface Methods
 
         public IDBRow Clone()
