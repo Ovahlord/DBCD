@@ -109,7 +109,10 @@ namespace DBCD.IO.Readers
                     else
                         Id = GetFieldValue<int>(0, Data, m_fieldMeta[i], ColumnMeta[i], PalletData[i], CommonData[i]);
 
-                    info.Setter.SetObject(entry, Convert.ChangeType(Id, info.FieldType));
+                    if (info.FieldType == typeof(int))
+                        info.Setter.SetValue(entry, Id);
+                    else
+                        info.Setter.SetObject(entry, Convert.ChangeType(Id, info.FieldType));
                     continue;
                 }
                 

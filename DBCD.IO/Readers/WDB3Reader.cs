@@ -84,7 +84,10 @@ namespace DBCD.IO.Readers
                     else
                         Id = GetFieldValue<int>(Data);
 
-                    info.Setter.SetObject(entry, Convert.ChangeType(Id, info.FieldType));
+                    if (info.FieldType == typeof(int))
+                        info.Setter.SetValue(entry, Id);
+                    else
+                        info.Setter.SetObject(entry, Convert.ChangeType(Id, info.FieldType));
                     continue;
                 }
 

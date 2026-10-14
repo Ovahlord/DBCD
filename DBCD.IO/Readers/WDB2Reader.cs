@@ -64,7 +64,11 @@ namespace DBCD.IO.Readers
                 if (info.IndexMapField)
                 {
                     Id = GetFieldValue<int>(Data);
-                    info.Setter.SetObject(entry, Convert.ChangeType(Id, info.FieldType));
+                    
+                    if (info.FieldType == typeof(T))
+                        info.Setter.SetValue(entry, Id);
+                    else
+                        info.Setter.SetObject(entry, Convert.ChangeType(Id, info.FieldType));
                     continue;
                 }
 
