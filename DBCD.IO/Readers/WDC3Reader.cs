@@ -55,6 +55,29 @@ namespace DBCD.IO.Readers
             return stringTable[index];
         }
 
+        private static class SingleReaderCache<T>
+        {
+            public static readonly Dictionary<Type, Action<T, FieldCache<T>, int, BitReader, int, FieldMetaData, ColumnMetaData, Value32[], Dictionary<int, Value32>, Dictionary<long, string>, BaseReader>> Readers = new()
+            {
+                { typeof(ulong), (record, info, id, data, _, fieldMeta, columnMeta, palletData, commonData, _, _) => info.Setter.SetValue(record, GetFieldValue<ulong>(id, data, fieldMeta, columnMeta, palletData, commonData)) },
+                { typeof(long), (record, info, id, data, _, fieldMeta, columnMeta, palletData, commonData, _, _) => info.Setter.SetValue(record, GetFieldValue<long>(id, data, fieldMeta, columnMeta, palletData, commonData)) },
+                { typeof(float), (record, info, id, data, _, fieldMeta, columnMeta, palletData, commonData, _, _) => info.Setter.SetValue(record, GetFieldValue<float>(id, data, fieldMeta, columnMeta, palletData, commonData)) },
+                { typeof(uint), (record, info, id, data, _, fieldMeta, columnMeta, palletData, commonData, _, _) => info.Setter.SetValue(record, GetFieldValue<uint>(id, data, fieldMeta, columnMeta, palletData, commonData)) },
+                { typeof(int), (record, info, id, data, _, fieldMeta, columnMeta, palletData, commonData, _, _) => info.Setter.SetValue(record, GetFieldValue<int>(id, data, fieldMeta, columnMeta, palletData, commonData)) },
+                { typeof(ushort), (record, info, id, data, _, fieldMeta, columnMeta, palletData, commonData, _, _) => info.Setter.SetValue(record, GetFieldValue<ushort>(id, data, fieldMeta, columnMeta, palletData, commonData)) },
+                { typeof(short), (record, info, id, data, _, fieldMeta, columnMeta, palletData, commonData, _, _) => info.Setter.SetValue(record, GetFieldValue<short>(id, data, fieldMeta, columnMeta, palletData, commonData)) },
+                { typeof(byte), (record, info, id, data, _, fieldMeta, columnMeta, palletData, commonData, _, _) => info.Setter.SetValue(record, GetFieldValue<byte>(id, data, fieldMeta, columnMeta, palletData, commonData)) },
+                { typeof(sbyte), (record, info, id, data, _, fieldMeta, columnMeta, palletData, commonData, _, _) => info.Setter.SetValue(record, GetFieldValue<sbyte>(id, data, fieldMeta, columnMeta, palletData, commonData)) },
+                { typeof(string), (record, info, id, data, recordOffset, fieldMeta, columnMeta, palletData, commonData, stringTable, header) =>
+                    {
+                        string stringValue = header.Flags.HasFlagExt(DB2Flags.Sparse) ? 
+                            data.ReadCString() : getStringTableRecord(stringTable, recordOffset, id, data, fieldMeta, columnMeta, palletData, commonData);
+                        info.Setter.SetObject(record, stringValue);
+                    }
+                }
+            };
+        }
+        
         private static Dictionary<Type, Func<BitReader, int, FieldMetaData, ColumnMetaData, Value32[], Dictionary<int, Value32>, Dictionary<long, string>, object>> arrayReaders = new Dictionary<Type, Func<BitReader, int, FieldMetaData, ColumnMetaData, Value32[], Dictionary<int, Value32>, Dictionary<long, string>, object>>
         {
             [typeof(ulong[])] = (data, recordOffset, fieldMeta, columnMeta, palletData, commonData, stringTable) => GetFieldValueArray<ulong>(data, fieldMeta, columnMeta, palletData, commonData),
@@ -105,8 +128,10 @@ namespace DBCD.IO.Readers
                     else
                         throw new Exception("Unhandled array type: " + typeof(T).Name);
                 }
+                else if (SingleReaderCache<T>.Readers.TryGetValue(info.FieldType, out var reader))
+                    reader(entry, info, Id, Data, m_recordOffset, m_fieldMeta[fieldIndex], ColumnMeta[fieldIndex], PalletData[fieldIndex], CommonData[fieldIndex], m_reader.StringTable, m_reader);
                 else
-                    ReadStronglyTyped(entry, info, Id, Data, m_recordOffset, m_fieldMeta[fieldIndex], ColumnMeta[fieldIndex], PalletData[fieldIndex], CommonData[fieldIndex], m_reader.StringTable, m_reader);
+                    throw new Exception("Unhandled field type: " + typeof(T).Name);
             }
         }
 
@@ -212,37 +237,6 @@ namespace DBCD.IO.Readers
             }
 
             throw new Exception(string.Format("Unexpected compression type {0}", columnMeta.CompressionType));
-        }
-        
-        private static void ReadStronglyTyped<T>(T record, FieldCache<T> info, int id, BitReader data, int recordOffset, FieldMetaData fieldMeta, ColumnMetaData columnMeta, Value32[] palletData, Dictionary<int, Value32> commonData, Dictionary<long, string> stringTable, BaseReader header)
-        {
-            // This is not very pretty, but it is required to avoid boxing the read values
-            if (info.FieldType == typeof(ulong))
-                info.Setter.SetValue(record, GetFieldValue<ulong>(id, data, fieldMeta, columnMeta, palletData, commonData));
-            else if (info.FieldType == typeof(long))
-                info.Setter.SetValue(record, GetFieldValue<long>(id, data, fieldMeta, columnMeta, palletData, commonData));
-            else if (info.FieldType == typeof(float))
-                info.Setter.SetValue(record, GetFieldValue<float>(id, data, fieldMeta, columnMeta, palletData, commonData));
-            else if (info.FieldType == typeof(uint))
-                info.Setter.SetValue(record, GetFieldValue<uint>(id, data, fieldMeta, columnMeta, palletData, commonData));
-            else if (info.FieldType == typeof(int))
-                info.Setter.SetValue(record, GetFieldValue<int>(id, data, fieldMeta, columnMeta, palletData, commonData));
-            else if (info.FieldType == typeof(ushort))
-                info.Setter.SetValue(record, GetFieldValue<ushort>(id, data, fieldMeta, columnMeta, palletData, commonData));
-            else if (info.FieldType == typeof(short))
-                info.Setter.SetValue(record, GetFieldValue<short>(id, data, fieldMeta, columnMeta, palletData, commonData));
-            else if (info.FieldType == typeof(byte))
-                info.Setter.SetValue(record, GetFieldValue<byte>(id, data, fieldMeta, columnMeta, palletData, commonData));
-            else if (info.FieldType == typeof(sbyte))
-                info.Setter.SetValue(record, GetFieldValue<sbyte>(id, data, fieldMeta, columnMeta, palletData, commonData));
-            else if (info.FieldType == typeof(string))
-            {
-                string stringValue = header.Flags.HasFlagExt(DB2Flags.Sparse) ? 
-                    data.ReadCString() : getStringTableRecord(stringTable, recordOffset, id, data, fieldMeta, columnMeta, palletData, commonData);
-                info.Setter.SetObject(record, stringValue);
-            }
-            else
-                throw new Exception("Unhandled field type: " + typeof(T).Name);
         }
         
         public IDBRow Clone()

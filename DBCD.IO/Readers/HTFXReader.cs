@@ -31,19 +31,22 @@ namespace DBCD.IO.Readers
             Id = hotfixEntry.RecordId;
         }
 
-        private static Dictionary<Type, Func<BitReader, object>> simpleReaders = new Dictionary<Type, Func<BitReader, object>>
+        private static class SingleReaderCache<T>
         {
-            [typeof(ulong)] = (data) => GetFieldValue<ulong>(data),
-            [typeof(long)] = (data) => GetFieldValue<long>(data),
-            [typeof(float)] = (data) => GetFieldValue<float>(data),
-            [typeof(int)] = (data) => GetFieldValue<int>(data),
-            [typeof(uint)] = (data) => GetFieldValue<uint>(data),
-            [typeof(short)] = (data) => GetFieldValue<short>(data),
-            [typeof(ushort)] = (data) => GetFieldValue<ushort>(data),
-            [typeof(sbyte)] = (data) => GetFieldValue<sbyte>(data),
-            [typeof(byte)] = (data) => GetFieldValue<byte>(data),
-            [typeof(string)] = (data) => data.ReadCString(),
-        };
+            public static readonly Dictionary<Type, Action<T, FieldCache<T>, BitReader>> Readers = new()
+            {
+                { typeof(long), (record, info, data) => info.Setter.SetValue(record, GetFieldValue<ulong>(data)) },
+                { typeof(ulong), (record, info, data) => info.Setter.SetValue(record, GetFieldValue<long>(data)) },
+                { typeof(float), (record, info, data) => info.Setter.SetValue(record, GetFieldValue<float>(data)) },
+                { typeof(uint), (record, info, data) => info.Setter.SetValue(record, GetFieldValue<uint>(data)) },
+                { typeof(int), (record, info, data) => info.Setter.SetValue(record, GetFieldValue<int>(data)) },
+                { typeof(ushort), (record, info, data) => info.Setter.SetValue(record, GetFieldValue<ushort>(data)) },
+                { typeof(short), (record, info, data) => info.Setter.SetValue(record, GetFieldValue<short>(data)) },
+                { typeof(byte), (record, info, data) => info.Setter.SetValue(record, GetFieldValue<byte>(data)) },
+                { typeof(sbyte), (record, info, data) => info.Setter.SetValue(record, GetFieldValue<sbyte>(data)) },
+                { typeof(string), (record, info, data) => info.Setter.SetObject(record, data.ReadCString()) }
+            };
+        }
 
         private static Dictionary<Type, Func<BitReader, int, object>> arrayReaders = new Dictionary<Type, Func<BitReader, int, object>>
         {
@@ -71,33 +74,30 @@ namespace DBCD.IO.Readers
                     info.Setter.SetObject(entry, Convert.ChangeType(Id, info.FieldType));
                     continue;
                 }
-
-                object value = null;
-
+                
                 if (info.IsArray)
                 {
                     if (arrayReaders.TryGetValue(info.MetaDataFieldType, out var reader))
-                        value = reader(m_data, info.Cardinality);
+                        info.Setter.SetObject(entry, reader(m_data, info.Cardinality));
                     else
                         throw new Exception("Unhandled array type: " + typeof(T).Name);
                 }
                 else
                 {
-                    if (simpleReaders.TryGetValue(info.MetaDataFieldType, out var reader))
-                        value = reader(m_data);
+                    if (SingleReaderCache<T>.Readers.TryGetValue(info.MetaDataFieldType, out var reader))
+                        reader(entry, info, m_data);
                     else
                         throw new Exception("Unhandled field type: " + typeof(T).Name);
                 }
 
+                /*
+                 The strongly typed Setter does take care of converting mismatching types already
                 if (info.IsNonInlineRelation)
                 {
-                    var casted = Convert.ChangeType(value, info.FieldType);
+                    var casted = Convert.ChangeType(info.Getter(entry), info.FieldType);
                     info.Setter.SetObject(entry, casted);
                 }
-                else
-                {
-                    info.Setter.SetObject(entry, value);
-                }
+                */
             }
         }
 
@@ -113,33 +113,6 @@ namespace DBCD.IO.Readers
                 array[i] = r.ReadValue64(Unsafe.SizeOf<T>() * 8).GetValue<T>();
 
             return array;
-        }
-
-        private static void ReadStronglyTyped<T>(T record, FieldCache<T> info, BitReader data)
-        {
-            // This is not very pretty, but it is required to avoid boxing the read values
-            if (info.FieldType == typeof(ulong))
-                info.Setter.SetValue(record, GetFieldValue<ulong>(data));
-            else if (info.FieldType == typeof(long))
-                info.Setter.SetValue(record, GetFieldValue<long>(data));
-            else if (info.FieldType == typeof(float))
-                info.Setter.SetValue(record, GetFieldValue<float>(data));
-            else if (info.FieldType == typeof(uint))
-                info.Setter.SetValue(record, GetFieldValue<uint>(data));
-            else if (info.FieldType == typeof(int))
-                info.Setter.SetValue(record, GetFieldValue<int>(data));
-            else if (info.FieldType == typeof(ushort))
-                info.Setter.SetValue(record, GetFieldValue<ushort>(data));
-            else if (info.FieldType == typeof(short))
-                info.Setter.SetValue(record, GetFieldValue<short>(data));
-            else if (info.FieldType == typeof(byte))
-                info.Setter.SetValue(record, GetFieldValue<byte>(data));
-            else if (info.FieldType == typeof(sbyte))
-                info.Setter.SetValue(record, GetFieldValue<sbyte>(data));
-            else if (info.FieldType == typeof(string))
-                info.Setter.SetObject(record, data.ReadCString());
-            else
-                throw new Exception("Unhandled field type: " + typeof(T).Name);
         }
         
         #region Interface Methods

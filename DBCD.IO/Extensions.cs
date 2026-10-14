@@ -31,7 +31,7 @@ namespace DBCD.IO
 
             var closedSetterType = typeof(PrimitiveSetter<,>).MakeGenericType(typeof(T), fieldType);
             var ctor = closedSetterType.GetConstructor(new[] { actionType });
-            return (IPrimitiveSetter<T>)ctor.Invoke(new[] { compiledDelegate });
+            return (IPrimitiveSetter<T>)ctor?.Invoke(new[] { compiledDelegate });
         }
 
         public static Func<T, object> GetGetter<T>(this FieldInfo fieldInfo)
