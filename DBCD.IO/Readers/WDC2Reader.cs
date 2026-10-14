@@ -106,7 +106,7 @@ namespace DBCD.IO.Readers
                 if (info.IsArray)
                 {
                     if (arrayReaders.TryGetValue(info.FieldType, out var reader))
-                        info.Setter.SetObject(entry, (Data, m_recordsOffset, m_fieldMeta[fieldIndex], ColumnMeta[fieldIndex], PalletData[fieldIndex], CommonData[fieldIndex], m_reader.StringTable));
+                        info.Setter.SetObject(entry, reader(Data, m_recordsOffset, m_fieldMeta[fieldIndex], ColumnMeta[fieldIndex], PalletData[fieldIndex], CommonData[fieldIndex], m_reader.StringTable));
                     else
                         throw new Exception("Unhandled array type: " + typeof(T).Name);
                 }
